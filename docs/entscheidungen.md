@@ -2,6 +2,20 @@
 
 Kurzprotokoll der wesentlichen Entscheidungen. Neue Einträge oben anfügen.
 
+## 2026-11-03 – Import und Export (M6)
+
+| # | Entscheidung | Begründung |
+|---|---|---|
+| E34 | `replace_area` löscht je Dimension genau die Elemente, die in der Datei mit einem Wert vorkommen (Produkt der Elementmengen), nicht die Hüllmenge aller Zeilen | Plan 4.6 „genau den Bereich, den die Datei abdeckt". Eine leere Wertespalte (z. B. `Kosten` überall leer) gehört nicht zum Bereich; mit der Wiederholbarkeit (zweimal = einmal) per Property-Test belegt |
+| E35 | Ein Import ist eine Operation (`Cube::bulk_write`): Rechte, Regelsperre und Konflikte werden für alle Änderungen vorab geprüft, dann wird ganz oder gar nicht geschrieben; ein Undo-Schritt nimmt alles zurück | Plan 4.6: „Jeder Import ist eine Transaktion, prüft Schreibrechte, landet im Journal, ist per Undo rücknehmbar" |
+| E36 | `unknown_member = "reject"` lehnt den ganzen Import ab (Protokoll listet bis zu 200 Zeilen mit Grund); `skip` überspringt und zählt; `create_under:<Element>` legt fehlende Elemente an, vor dem Schreiben der Zellen und zuerst in der Datei | Reihenfolge verhindert, dass nach einem Abbruch Fakten auf nicht gespeicherte Elemente zeigen |
+| E37 | `create_under` lehnt ein Elternelement ab, das selbst Zellen hält | Es würde zum Aggregat, seine Zellen gingen verloren; der Nutzer soll ein Aggregat oder ein leeres Element nennen |
+| E38 | Es werden nur Basiselemente geladen; Aggregate in der Datei sind abgelehnte Zeilen | Aggregate werden zur Abfragezeit berechnet |
+| E39 | Leere Wertezelle = keine Zelle (nicht 0); Zahlen mit `decimal = ","` akzeptieren Tausenderpunkte, mit `"."` Tausenderkommas; mehrfach vorkommende Zellen einer Datei werden summiert | Wie im Plan („Schreiben von 0 oder leer löscht"); Summieren entspricht dem breiten und langen Format ohne Eindeutigkeit |
+| E40 | Spezifikation: Langformat über `value_column` (der Plan zeigt nur das breite Format); Wertedimension standardmäßig die einzige vom Typ Measures, sonst `options.value_dimension`; `deny_unknown_fields` meldet Tippfehler | Der Plan nennt „lang oder breit" für den Export; der Import soll dasselbe können |
+| E41 | Import-Spezifikationen liegen als TOML-Text in der Tabelle `import_specs` (Schema-Version 2); die erste echte Migration (v1→v2) legt dabei `<Datei>.before-v2` an | Plan 4.6 „im Modell speicherbar"; damit ist der Migrationsablauf aus E31 erstmals an einer echten Migration geprüft |
+| E42 | Export rechnet wahlweise mit Regeln (`with_rules`), lässt leere Zellen/Zeilen weg und begrenzt sich auf 50 Mio. Zellen; xlsx nur bis 1.048.575 Zeilen | Schutz vor versehentlich riesigen Dateien; für mehr gibt es CSV |
+
 ## 2026-11-03 – Persistenz und Journal (M5)
 
 | # | Entscheidung | Begründung |
@@ -10,7 +24,7 @@ Kurzprotokoll der wesentlichen Entscheidungen. Neue Einträge oben anfügen.
 | E28 | Schreiben ist Write-through: Der Cube übergibt die Operation zuerst an einen `OpSink`, der sie in einer SQLite-Transaktion (Fakten + Journal) speichert; erst danach ändert sich der Speicher. Lehnt der Sink ab, ändert sich nichts | Einzige Möglichkeit, dass „Abbruch mitten im Import eine konsistente Datei hinterlässt" (Abnahme M5) und Datei und Speicher nie auseinanderlaufen |
 | E29 | Kein Binär-Snapshot beim Start | Plan 4.5 macht ihn von der Messung abhängig: 10 Mio. Zellen laden in 2,2 s (Ziel < 20 s) |
 | E30 | Exklusiver Zugriff über eine Sperrdatei (`<datei>.lock`, `File::try_lock`); Rust-Mindestversion 1.89 | Plan 4.5/E4: lokaler Modus exklusiv. `try_lock` gibt es seit Rust 1.89; das Docker-Image baut ohnehin mit 1.99 |
-| E31 | Vor einer Schemamigration wird die Datei per `VACUUM INTO` nach `<datei>.before-v<N>` kopiert | Plan 6.4: „vorher automatisches Backup". Es gibt bisher nur Schema-Version 1; der Ablauf ist angelegt, aber noch nicht durch eine echte Migration geprüft |
+| E31 | Vor einer Schemamigration wird die Datei per `VACUUM INTO` nach `<datei>.before-v<N>` kopiert | Plan 6.4: „vorher automatisches Backup". Seit M6 (Schema 2) durch eine echte Migration getestet (E41) |
 | E32 | Eine Dimensionsänderung verwirft Fakten entfernter Elemente und von Elementen, die zu Aggregaten wurden, und protokolliert die Zahl im Journal. Die Rückfrage und die Option „auf neues Kind `<Name> (Rest)` verschieben" (Plan 4.1) gehören in die Oberfläche | Die Engine kann nur ausführen; die Entscheidung trifft der Nutzer in M8/M9 |
 | E33 | Der Aggregat-Cache wird weiterhin vollständig geleert; der Schreibpfad ist jetzt aber nicht mehr der Engpass (Splash mit 100.000 Zellen inkl. Journal: 0,22 s) | gemessen |
 

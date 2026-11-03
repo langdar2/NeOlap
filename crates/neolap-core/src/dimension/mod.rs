@@ -316,6 +316,11 @@ impl Dimension {
         self.live == 0
     }
 
+    /// Number of member slots (live and free); member ids are below this.
+    pub fn len_slots(&self) -> usize {
+        self.raw.names.len()
+    }
+
     /// Number of base members.
     pub fn n_leaves(&self) -> u32 {
         self.leaf_members.len() as u32

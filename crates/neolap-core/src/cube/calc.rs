@@ -157,7 +157,7 @@ impl Cube {
         self.rules.report()
     }
 
-    fn valid_rules(&self) -> impl Iterator<Item = &Rule> {
+    pub(crate) fn valid_rules(&self) -> impl Iterator<Item = &Rule> {
         self.rules
             .entries
             .iter()
@@ -186,8 +186,15 @@ impl Cube {
             .map(|r| r.line)
     }
 
+    /// Line of the rule that calculates this base cell (ordinal per dimension), if any.
+    pub(crate) fn rule_lock_base(&self, coords: &[u32]) -> Option<usize> {
+        self.valid_rules()
+            .find(|r| r.scope != Scope::Aggregate && r.base_match(|d| coords[d]))
+            .map(|r| r.line)
+    }
+
     /// Whether a rule influences this cell (directly or through base cells below it).
-    pub(super) fn rule_touches(&self, addr: &[MemberId]) -> bool {
+    pub(crate) fn rule_touches(&self, addr: &[MemberId]) -> bool {
         if self.rules.is_empty() {
             return false;
         }
@@ -329,7 +336,12 @@ impl Cube {
     }
 
     /// Target cells of `rule` (base cells in the area) whose feeder cell holds a stored value.
-    fn fed_cells(&self, rule: &Rule, feeder: &CellRef, sets: &[Arc<LeafSet>]) -> Vec<Vec<u32>> {
+    pub(crate) fn fed_cells(
+        &self,
+        rule: &Rule,
+        feeder: &CellRef,
+        sets: &[Arc<LeafSet>],
+    ) -> Vec<Vec<u32>> {
         let n = self.dims.len();
         let mut fed_dims: Vec<(usize, Arc<LeafSet>)> = Vec::new();
         for it in &feeder.items {

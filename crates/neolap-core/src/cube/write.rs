@@ -82,6 +82,38 @@ struct Change {
     new: Option<f64>,
 }
 
+/// How [`Cube::bulk_write`] combines a value with the existing cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BulkMode {
+    /// New value = existing value + given value.
+    Add,
+    /// New value = given value.
+    Overwrite,
+}
+
+/// Request of [`Cube::bulk_write`].
+#[derive(Debug, Clone)]
+pub struct BulkWrite {
+    /// Base members per dimension whose cells are deleted first (the area of a `replace_area` load).
+    pub clear: Option<Vec<Vec<MemberId>>>,
+    /// Cells by base-member address; duplicates are summed.
+    pub cells: Vec<(Vec<MemberId>, f64)>,
+    pub mode: BulkMode,
+    /// Only check and count, change nothing.
+    pub dry_run: bool,
+}
+
+/// What a bulk write changed (or would change).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BulkOutcome {
+    pub created: usize,
+    pub updated: usize,
+    pub deleted: usize,
+    pub unchanged: usize,
+    /// `None` for a dry run or if nothing changed.
+    pub result: Option<WriteResult>,
+}
+
 /// One changed cell of an operation, addressed by member ids.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CellChange {
@@ -574,6 +606,129 @@ impl Cube {
         let changes = settle(ctx.decimals, target, news, existing);
         self.check_permission(ctx, &changes)?;
         self.commit(&ctx.user, "splash", true, changes)
+    }
+
+    /// Bulk write (import): optionally clears an area first, then adds to or overwrites cells.
+    /// Everything is one operation: checked as a whole (rules, permissions, conflicts), applied
+    /// completely or not at all, undoable as one step. Sums that become 0 delete the cell.
+    pub fn bulk_write(&mut self, ctx: &WriteContext, req: BulkWrite) -> Result<BulkOutcome> {
+        let n = self.dims.len();
+        let mut target: HashMap<Vec<u32>, Option<f64>> = HashMap::new();
+        if let Some(clear) = &req.clear {
+            if clear.len() != n {
+                return Err(Error::InvalidOperation(format!(
+                    "the area has {} dimensions, the cube {n}",
+                    clear.len()
+                )));
+            }
+            let mut sets = Vec::with_capacity(n);
+            for (d, members) in clear.iter().enumerate() {
+                let mut ords = Vec::with_capacity(members.len());
+                for &m in members {
+                    let ord = self.dims[d].leaf_ordinal(m).ok_or_else(|| {
+                        Error::InvalidOperation(format!(
+                            "'{}' in '{}' is not a base member",
+                            self.dims[d].member_name(m).unwrap_or("?"),
+                            self.dims[d].name()
+                        ))
+                    })?;
+                    ords.push((ord, 1.0f32));
+                }
+                sets.push(Arc::new(LeafSet::from_leaves(
+                    ords,
+                    self.dims[d].n_leaves(),
+                )));
+            }
+            if sets.iter().all(|s| !s.is_empty()) {
+                for (coords, _) in self.existing_cells(&sets) {
+                    target.insert(coords, None);
+                }
+            }
+        }
+        let mut sums: HashMap<Vec<u32>, f64> = HashMap::with_capacity(req.cells.len());
+        for (addr, v) in &req.cells {
+            *sums.entry(self.base_coords(addr)?).or_insert(0.0) += v;
+        }
+        for (coords, v) in sums {
+            let value = match req.mode {
+                BulkMode::Overwrite => v,
+                BulkMode::Add if target.contains_key(&coords) => v,
+                BulkMode::Add => self.store.get(&coords).unwrap_or(0.0) + v,
+            };
+            target.insert(coords, (value != 0.0).then_some(value));
+        }
+        let mut outcome = BulkOutcome::default();
+        let mut changes = Vec::new();
+        for (coords, new) in target {
+            let old = self.store.get(&coords);
+            match (old, new) {
+                (a, b) if a == b => outcome.unchanged += 1,
+                (None, Some(_)) => outcome.created += 1,
+                (Some(_), Some(_)) => outcome.updated += 1,
+                (Some(_), None) => outcome.deleted += 1,
+                (None, None) => unreachable!("equal"),
+            }
+            if old != new {
+                changes.push(Change { coords, old, new });
+            }
+        }
+        changes.sort_by(|a, b| a.coords.cmp(&b.coords));
+        self.check_expected_cells(ctx, &changes)?;
+        if let Some(c) = changes
+            .iter()
+            .find_map(|c| self.rule_lock_base(&c.coords).map(|line| (c, line)))
+        {
+            return Err(Error::Denied(format!(
+                "cell [{}] is calculated by the rule in line {}",
+                self.cell_name(&c.0.coords),
+                c.1
+            )));
+        }
+        self.check_permission(ctx, &changes)?;
+        if !req.dry_run {
+            outcome.result = Some(self.commit(&ctx.user, "import", true, changes)?);
+        }
+        Ok(outcome)
+    }
+
+    /// Conflict check for a set of cell changes against a client's generation.
+    fn check_expected_cells(&self, ctx: &WriteContext, changes: &[Change]) -> Result<()> {
+        let Some(g) = ctx.expected_generation else {
+            return Ok(());
+        };
+        if g >= self.generation {
+            return Ok(());
+        }
+        if g < self.history.floor {
+            return Err(Error::Conflict(
+                "the view is too old to check for conflicts, please reload it".into(),
+            ));
+        }
+        let n = self.dims.len();
+        let mut touched: HashMap<&[u32], &str> = HashMap::new();
+        for op in self
+            .history
+            .ops
+            .iter()
+            .rev()
+            .take_while(|op| op.generation > g)
+        {
+            for i in 0..op.len() {
+                touched
+                    .entry(op.coords_of(i, n))
+                    .or_insert(op.user.as_str());
+            }
+        }
+        for c in changes {
+            if let Some(user) = touched.get(&c.coords.as_slice()) {
+                return Err(Error::WriteConflict {
+                    user: (*user).to_string(),
+                    cell: self.cell_name(&c.coords),
+                    value: self.store.get(&c.coords),
+                });
+            }
+        }
+        Ok(())
     }
 
     /// Reverts the user's latest operation. Rejected if someone changed an affected cell since.

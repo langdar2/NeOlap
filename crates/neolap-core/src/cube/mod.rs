@@ -23,8 +23,8 @@ pub use calc::{CellError, CellValue, CubeProvider};
 pub use input::Input;
 pub use store::{FactStore, MemoryStats};
 pub use write::{
-    AreaInfo, CellChange, CellVersion, OpRecord, OpSink, UNDO_DEPTH, WriteContext, WritePermission,
-    WriteResult,
+    AreaInfo, BulkMode, BulkOutcome, BulkWrite, CellChange, CellVersion, OpRecord, OpSink,
+    UNDO_DEPTH, WriteContext, WritePermission, WriteResult,
 };
 
 /// Sets with more base members than this are not summed up for the row estimate.
@@ -194,7 +194,7 @@ impl Cube {
         self.store.len()
     }
 
-    fn check_addr(&self, addr: &[MemberId]) -> Result<()> {
+    pub(crate) fn check_addr(&self, addr: &[MemberId]) -> Result<()> {
         if addr.len() != self.dims.len() {
             return Err(Error::InvalidOperation(format!(
                 "cube '{}' has {} dimensions, address has {}",
@@ -214,7 +214,7 @@ impl Cube {
         Ok(())
     }
 
-    fn base_coords(&self, addr: &[MemberId]) -> Result<Vec<u32>> {
+    pub(crate) fn base_coords(&self, addr: &[MemberId]) -> Result<Vec<u32>> {
         self.check_addr(addr)?;
         self.dims
             .iter()

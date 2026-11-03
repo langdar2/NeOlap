@@ -12,6 +12,7 @@ use serde::Serialize;
 
 pub mod cube;
 pub mod dimension;
+pub mod exchange;
 pub mod persist;
 pub mod rules;
 

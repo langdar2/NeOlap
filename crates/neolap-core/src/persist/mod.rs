@@ -15,8 +15,9 @@ use parking_lot::Mutex;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 
-use crate::cube::{Cube, OpRecord, OpSink};
+use crate::cube::{Cube, OpRecord, OpSink, WriteContext};
 use crate::dimension::{Dimension, DimensionData};
+use crate::exchange::{ImportReport, ImportSpec, SourceKind};
 use crate::{Error, MemberId, Result};
 
 pub use schema::SCHEMA_VERSION;
@@ -527,6 +528,150 @@ impl Database {
         let backup = rusqlite::backup::Backup::new(&conn, &mut dst)?;
         backup.run_to_completion(256, std::time::Duration::from_millis(0), None)?;
         Ok(())
+    }
+
+    /// Stores an import specification in the model (replaces one with the same name).
+    pub fn save_import_spec(&mut self, toml_text: &str, user: &str) -> Result<()> {
+        let spec = ImportSpec::from_toml(toml_text)?;
+        let cube = self
+            .cube(&spec.cube)
+            .map(|c| c.name().to_string())
+            .ok_or_else(|| Error::NotFound {
+                kind: "cube",
+                name: spec.cube.clone(),
+            })?;
+        self.tx(|tx| {
+            tx.execute(
+                "INSERT INTO import_specs (name, cube, spec) VALUES (?1, ?2, ?3) ON CONFLICT (name) DO UPDATE SET cube = excluded.cube, spec = excluded.spec",
+                params![spec.name, cube, toml_text],
+            )?;
+            Self::log(tx, user, "import_spec", &cube, 0, 0, &spec.name)
+        })
+    }
+
+    /// Names of the stored import specifications.
+    pub fn import_spec_names(&self) -> Result<Vec<String>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT name FROM import_specs ORDER BY name")?;
+        Ok(stmt
+            .query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<Vec<String>, _>>()?)
+    }
+
+    /// Text of a stored import specification.
+    pub fn import_spec(&self, name: &str) -> Result<String> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT spec FROM import_specs WHERE name = ?1 COLLATE NOCASE",
+            params![name],
+            |r| r.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| Error::NotFound {
+            kind: "import specification",
+            name: name.to_string(),
+        })
+    }
+
+    /// Runs an import (see [`crate::exchange::run_import`]); unknown members are created through
+    /// [`save_dimension`](Self::save_dimension) so that they reach the file. A real run is
+    /// written to the journal as one operation and can be undone.
+    pub fn run_import(
+        &mut self,
+        spec: &ImportSpec,
+        kind: SourceKind,
+        data: &[u8],
+        ctx: &WriteContext,
+        dry_run: bool,
+    ) -> Result<ImportReport> {
+        let key = self
+            .cube(&spec.cube)
+            .map(|c| c.name().to_string())
+            .ok_or_else(|| Error::NotFound {
+                kind: "cube",
+                name: spec.cube.clone(),
+            })?;
+        // Unknown members are created *before* any cell is written, and the dimension reaches the
+        // file first: a crash in between leaves a valid file (only the new members exist).
+        let mut cube = self.cubes.remove(&key).expect("checked");
+        let conn = self.conn.clone();
+        let user = ctx.user.clone();
+        let mut changed: Vec<Arc<Dimension>> = Vec::new();
+        let result = {
+            let mut create = |c: &mut Cube,
+                              d: usize,
+                              members: Vec<(String, String)>|
+             -> Result<()> {
+                let dim = c.dimensions()[d].clone();
+                let mut ed = dim.edit();
+                for (name, parent) in &members {
+                    let p = ed.get_or_add(parent)?;
+                    let m = ed.add(name)?;
+                    ed.add_edge(p, m, 1.0)?;
+                }
+                let new = Arc::new(ed.commit()?);
+                let data = serde_json::to_string(&new.to_data())
+                    .map_err(|e| Error::Storage(e.to_string()))?;
+                {
+                    let mut conn = conn.lock();
+                    let tx = conn.transaction()?;
+                    tx.execute(
+                        "INSERT INTO dimensions (name, data) VALUES (?1, ?2) ON CONFLICT (name) DO UPDATE SET data = excluded.data",
+                        params![new.name(), data],
+                    )?;
+                    Self::log(
+                        &tx,
+                        &user,
+                        "dimension",
+                        c.name(),
+                        c.generation(),
+                        0,
+                        &format!(
+                            "{} member(s) added by import '{}'",
+                            members.len(),
+                            spec.name
+                        ),
+                    )?;
+                    tx.commit()?;
+                }
+                // no cell is affected: the parents were checked to be aggregates or empty
+                c.replace_dimension(d, new.clone())?;
+                changed.push(new);
+                Ok(())
+            };
+            crate::exchange::run_import(
+                &mut cube,
+                spec,
+                kind,
+                data,
+                ctx,
+                dry_run,
+                Some(&mut create),
+            )
+        };
+        self.cubes.insert(key.clone(), cube);
+        for dim in changed {
+            let name = dim.name().to_string();
+            let others: Vec<String> = self
+                .cubes
+                .iter()
+                .filter(|(n, c)| **n != key && c.dimensions().iter().any(|x| x.name() == name))
+                .map(|(n, _)| n.clone())
+                .collect();
+            for other in others {
+                let idx = self.cubes[&other]
+                    .dimensions()
+                    .iter()
+                    .position(|x| x.name() == name)
+                    .expect("uses it");
+                self.cubes
+                    .get_mut(&other)
+                    .expect("exists")
+                    .replace_dimension(idx, dim.clone())?;
+            }
+            self.dims.insert(name, dim);
+        }
+        result
     }
 
     /// Number of rows in `facts` (for checks).
