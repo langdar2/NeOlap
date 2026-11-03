@@ -2,6 +2,17 @@
 
 Kurzprotokoll der wesentlichen Entscheidungen. Neue Einträge oben anfügen.
 
+## 2026-11-03 – Regeln (M4)
+
+| # | Entscheidung | Begründung |
+|---|---|---|
+| E21 | Syntaxfehler lehnen den ganzen Regeltext mit Zeile/Spalte ab; Regeln mit unbekanntem Element, unbekannter Dimension oder Funktion werden als ungültig markiert und übersprungen | Plan 4.4: „ungültige Regeln werden markiert, statt das Modell zu blockieren" – Modelländerungen dürfen Regeln nicht unbemerkt entwerten, die Statusliste (`RuleStatus`) meldet es dem Editor |
+| E22 | Das Regelziel nennt Elemente immer wörtlich (`'x'` oder `DESC('x')`); berechnete Elementnamen (`dim:ausdruck`) gibt es nur rechts | Das Ziel muss in eine Mustertabelle übersetzbar sein (Zuordnung ohne Auswertung) |
+| E23 | Regel ohne Präfix rechnet die Zelle auf jeder Ebene selbst (Aggregate werden nicht summiert); `N:` rechnet Basiszellen und Aggregate summieren die Ergebnisse; `C:` nur Aggregate | Entspricht ALL_LEVELS / BASE_LEVEL / AGGREGATION_LEVEL im Original |
+| E24 | Ohne `FEED` gelten alle Zellbezüge der Formel als Feeder; Zellen, für die ein Feeder keinen gespeicherten Wert findet, entstehen nicht | Plan 13: „Feeder-Ableitung als Standard". Feeder mit berechneten Elementnamen können nicht umgekehrt werden und speisen nichts |
+| E25 | Zellen, die eine Regel berechnet (oder deren Fläche eine Regelzelle enthält), sind für `write` gesperrt (`Denied` mit Regelzeile) | Plan 4.3: „Regelzellen sind gesperrt"; ein Splash über eine Regelzelle wäre nicht eindeutig |
+| E26 | Leere Zellen zählen in Rechnungen als 0, `NULL` liefert eine leere Zelle; Vergleiche und Text sind unabhängig von Groß-/Kleinschreibung | Wie in TM1/Alea; Textwerte sind nur in Regelausdrücken möglich (keine Textzellen in Cubes, Plan Kap. 1) |
+
 ## 2026-11-03 – Rückschreiben (M3)
 
 | # | Entscheidung | Begründung |

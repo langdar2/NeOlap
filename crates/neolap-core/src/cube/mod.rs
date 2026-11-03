@@ -4,6 +4,7 @@
 //! members (see `docs/Implementierungsplan.md`, chapter 4.2): the most selective dimension
 //! provides the row set, the other dimensions filter it.
 
+mod calc;
 mod input;
 mod store;
 mod write;
@@ -15,8 +16,10 @@ use parking_lot::Mutex;
 use rayon::prelude::*;
 
 use crate::dimension::{Dimension, LeafSet};
+use crate::rules::RuleSet;
 use crate::{Error, MemberId, Result};
 
+pub use calc::{CellError, CellValue, CubeProvider};
 pub use input::Input;
 pub use store::{FactStore, MemoryStats};
 pub use write::{AreaInfo, CellVersion, UNDO_DEPTH, WriteContext, WritePermission, WriteResult};
@@ -36,6 +39,7 @@ pub struct Cube {
     generation: u64,
     cache: Mutex<HashMap<Vec<MemberId>, Option<f64>>>,
     history: write::History,
+    rules: RuleSet,
 }
 
 /// Result grid of [`Cube::view`], row-major; `None` = empty cell.
@@ -44,6 +48,8 @@ pub struct Grid {
     pub n_rows: usize,
     pub n_cols: usize,
     pub cells: Vec<Option<f64>>,
+    /// Cells that evaluate to an error (cell index = `row * n_cols + col`); their `cells` entry is `None`.
+    pub errors: HashMap<usize, CellError>,
 }
 
 impl Grid {
@@ -78,6 +84,7 @@ impl Cube {
             store: FactStore::new(n),
             generation: 0,
             history: write::History::default(),
+            rules: RuleSet::default(),
             cache: Mutex::new(HashMap::new()),
         }
     }
@@ -239,6 +246,19 @@ impl Cube {
         cols: &[MemberId],
         fixed: &[MemberId],
     ) -> Result<Grid> {
+        self.view_with(row_dim, rows, col_dim, cols, fixed, None)
+    }
+
+    /// Like [`view`](Self::view); cells influenced by rules are evaluated with them.
+    pub fn view_with(
+        &self,
+        row_dim: usize,
+        rows: &[MemberId],
+        col_dim: usize,
+        cols: &[MemberId],
+        fixed: &[MemberId],
+        db: Option<&dyn CubeProvider>,
+    ) -> Result<Grid> {
         if row_dim == col_dim || row_dim >= self.dims.len() || col_dim >= self.dims.len() {
             return Err(Error::InvalidOperation("invalid axis dimensions".into()));
         }
@@ -322,19 +342,47 @@ impl Cube {
                     (a, ah)
                 },
             );
-        let cells = sums
+        let mut cells: Vec<Option<f64>> = sums
             .into_iter()
             .zip(hits)
             .map(|(s, h)| h.then_some(s))
             .collect();
+        let mut errors = HashMap::new();
+        if !self.rules.is_empty() {
+            let mut addr = fixed.to_vec();
+            for (ri, &r) in rows.iter().enumerate() {
+                for (ci, &c) in cols.iter().enumerate() {
+                    addr[row_dim] = r;
+                    addr[col_dim] = c;
+                    if !self.rule_touches(&addr) {
+                        continue;
+                    }
+                    let i = ri * n_cols + ci;
+                    cells[i] = None;
+                    match self.cell(&addr, db)? {
+                        CellValue::Num(v) => cells[i] = Some(v),
+                        CellValue::Empty => {}
+                        CellValue::Text(_) => {
+                            errors.insert(i, CellError::Err);
+                        }
+                        CellValue::Error(e) => {
+                            errors.insert(i, e);
+                        }
+                    }
+                }
+            }
+        }
         Ok(Grid {
             n_rows: rows.len(),
             n_cols,
             cells,
+            errors,
         })
     }
 }
 
+#[cfg(test)]
+mod rule_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

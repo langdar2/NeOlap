@@ -15,6 +15,10 @@ csv.workspace = true
 parking_lot.workspace = true
 hashbrown = "0.17"
 rayon = "1"
+rusqlite = { version = "0.41", features = ["bundled", "backup"] }
+toml = "0.9"
+serde_json = "1"
 
 [dev-dependencies]
 proptest.workspace = true
+tempfile = "3"

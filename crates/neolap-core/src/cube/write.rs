@@ -508,6 +508,11 @@ impl Cube {
         input: Input,
     ) -> Result<WriteResult> {
         let sets = self.area_sets(addr)?;
+        if let Some(line) = self.rule_lock(addr, &sets) {
+            return Err(Error::Denied(format!(
+                "the area contains cells calculated by the rule in line {line}"
+            )));
+        }
         self.check_expected(ctx, &sets)?;
         let existing = self.existing_cells(&sets);
         let (news, target) = match input {

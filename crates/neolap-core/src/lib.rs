@@ -12,8 +12,11 @@ use serde::Serialize;
 
 pub mod cube;
 pub mod dimension;
+pub mod rules;
 
-pub use cube::{Cube, FactStore, Grid, Input, WriteContext, WriteResult};
+pub use cube::{
+    CellError, CellValue, Cube, CubeProvider, FactStore, Grid, Input, WriteContext, WriteResult,
+};
 
 pub use dimension::{
     AttrValue, Dimension, DimensionEditor, DimensionKind, LeafSet, LeafShape, Subset,
