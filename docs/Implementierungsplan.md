@@ -365,7 +365,7 @@ Grobe Schätzung in Personentagen. Jeder Meilenstein endet mit lauffähigem, get
 | M6 | Import/Export | CSV/xlsx, Spezifikationen, Modi, Protokoll | 1 Mio. Zeilen < 10 s; zweimal `replace_area` = einmal | 3 |
 | M7 | CLI (lokal) | Befehle aus Kap. 8 | End-to-End-Skript läuft durch | 2 |
 | M8 | Server | REST, Anmeldung, Rollen, Bereichsrechte, Konflikte, SSE, Hintergrundjobs, TLS | API-Integrationstests inkl. Rechte- und Konfliktfällen; Lasttest 20 simulierte Nutzer | 7 |
-| M9 | Web-UI | Raster mit Eingabe, Editoren, Import, Journal, Verwaltung | Abnahme-Checkliste am Mac; Ansicht 50 × 20 < 500 ms | 9 |
+| M9 | Web-UI | Raster mit Eingabe, Editoren, Import, Journal, Verwaltung | Abnahme-Checkliste am Mac ([docs/Abnahme-M9.md](Abnahme-M9.md)); Ansicht 50 × 20 < 500 ms | 9 |
 | M10 | Python + CLI-Client | Bindings lokal und remote, Wheels, pandas, Notebook-Beispiele | `pip install` auf macOS arm64; Notebook „tiny“ läuft lokal und gegen Server | 3 |
 | M11 | Härtung + Betrieb | Benchmarks mit 20 Mio. Zellen, Optimierung, Backup/Update-Ablauf im Container, Handbuch, Release-Binaries und -Images | Zielwerte aus Kap. 1 erreicht, auch im Container mit 4 GB Limit; Release 1.0 | 4 |
 
