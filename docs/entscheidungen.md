@@ -2,6 +2,15 @@
 
 Kurzprotokoll der wesentlichen Entscheidungen. Neue Einträge oben anfügen.
 
+## 2026-11-03 – Rückschreiben (M3)
+
+| # | Entscheidung | Begründung |
+|---|---|---|
+| E17 | Eingabe `-50` ist ein Delta; ein negativer Absolutwert wird als `=-50` geschrieben | Der Plan nennt `+50`/`-50` als Delta; ohne Präfix wäre ein negativer Zielwert sonst nicht eindeutig |
+| E18 | Referenz-Splash `@Dim:Element,…:Wert` ordnet Basiselemente von Ziel und Referenz je genannter Dimension nach Position zu; gleiche Anzahl Pflicht | Die Plan-Syntax lässt offen, wie Referenz und Ziel zusammenpassen; Positionszuordnung ist eindeutig und prüfbar |
+| E19 | Ein Schreibvorgang ohne tatsächliche Änderung erzeugt keine Operation (keine Generation, kein Undo-Eintrag) | Vermeidet Scheinkonflikte und leere Journaleinträge |
+| E20 | Operationsprotokoll (alt/neu je Zelle) zunächst im Speicher, höchstens 1 Mio. Zelländerungen; ältere Operationen fallen heraus | Grundlage für Konflikte, Undo und Zellversionen in M3; M5 persistiert es als Journal. Ansichten, die älter als das Protokoll sind, bekommen die Meldung „bitte neu laden“ |
+
 ## 2026-11-03 – Speicherdesign (M2)
 
 | # | Entscheidung | Begründung |

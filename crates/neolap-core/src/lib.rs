@@ -13,7 +13,7 @@ use serde::Serialize;
 pub mod cube;
 pub mod dimension;
 
-pub use cube::{Cube, FactStore, Grid};
+pub use cube::{Cube, FactStore, Grid, Input, WriteContext, WriteResult};
 
 pub use dimension::{
     AttrValue, Dimension, DimensionEditor, DimensionKind, LeafSet, LeafShape, Subset,
@@ -40,9 +40,23 @@ pub enum Error {
     /// Name, alias or path-weight conflict (e.g. a leaf reachable with contradicting weights).
     #[error("conflict: {0}")]
     Conflict(String),
+    /// A cell in the written area was changed by someone else since the client's view.
+    #[error("cell [{cell}] was changed by '{user}' in the meantime (now {})", fmt_value(*.value))]
+    WriteConflict {
+        user: String,
+        cell: String,
+        value: Option<f64>,
+    },
+    /// The user may not write a cell of the affected area.
+    #[error("access denied: {0}")]
+    Denied(String),
     /// Input (CSV, specification, …) could not be parsed.
     #[error("parse error: {0}")]
     Parse(String),
+}
+
+fn fmt_value(v: Option<f64>) -> String {
+    v.map_or_else(|| "empty".to_string(), |v| v.to_string())
 }
 
 /// Convenience result type.

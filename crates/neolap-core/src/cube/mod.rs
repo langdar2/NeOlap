@@ -4,7 +4,9 @@
 //! members (see `docs/Implementierungsplan.md`, chapter 4.2): the most selective dimension
 //! provides the row set, the other dimensions filter it.
 
+mod input;
 mod store;
+mod write;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,7 +17,9 @@ use rayon::prelude::*;
 use crate::dimension::{Dimension, LeafSet};
 use crate::{Error, MemberId, Result};
 
+pub use input::Input;
 pub use store::{FactStore, MemoryStats};
+pub use write::{AreaInfo, CellVersion, UNDO_DEPTH, WriteContext, WritePermission, WriteResult};
 
 /// Sets with more base members than this are not summed up for the row estimate.
 const MAX_ESTIMATE_LEAVES: usize = 2048;
@@ -31,6 +35,7 @@ pub struct Cube {
     /// Incremented by every write; clients and the cache refer to it.
     generation: u64,
     cache: Mutex<HashMap<Vec<MemberId>, Option<f64>>>,
+    history: write::History,
 }
 
 /// Result grid of [`Cube::view`], row-major; `None` = empty cell.
@@ -72,6 +77,7 @@ impl Cube {
             dims,
             store: FactStore::new(n),
             generation: 0,
+            history: write::History::default(),
             cache: Mutex::new(HashMap::new()),
         }
     }
@@ -148,24 +154,6 @@ impl Cube {
             .zip(names)
             .map(|(d, n)| d.member(n))
             .collect()
-    }
-
-    fn touch(&mut self) {
-        self.generation += 1;
-        self.cache.lock().clear();
-    }
-
-    /// Writes a base cell. Writing `None` deletes it. Returns the previous value.
-    pub fn set_base(&mut self, addr: &[MemberId], value: Option<f64>) -> Result<Option<f64>> {
-        let coords = self.base_coords(addr)?;
-        let old = match value {
-            Some(v) => self.store.set(&coords, v),
-            None => self.store.remove(&coords),
-        };
-        if old != value {
-            self.touch();
-        }
-        Ok(old)
     }
 
     /// Value of a cell (base or aggregate); `None` if no base cell contributes.
@@ -349,3 +337,5 @@ impl Cube {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod write_tests;

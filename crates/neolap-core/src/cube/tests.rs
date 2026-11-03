@@ -2,7 +2,7 @@ use super::*;
 use crate::dimension::DimensionKind;
 use proptest::prelude::*;
 
-fn tiny() -> Cube {
+pub(super) fn tiny() -> Cube {
     let mut years = Dimension::new("years", DimensionKind::Time).edit();
     let total = years.add("Total").unwrap();
     let q1 = years.add("Q1").unwrap();
@@ -37,7 +37,7 @@ fn tiny() -> Cube {
     c
 }
 
-fn val(c: &Cube, a: &[&str]) -> Option<f64> {
+pub(super) fn val(c: &Cube, a: &[&str]) -> Option<f64> {
     c.value(&c.address(a).unwrap()).unwrap()
 }
 
@@ -115,7 +115,7 @@ fn naive_weights(d: &Dimension, m: MemberId) -> HashMap<u32, f64> {
     out
 }
 
-fn random_tree(name: &str, parents: &[usize], weights: &[i8]) -> Dimension {
+pub(super) fn random_tree(name: &str, parents: &[usize], weights: &[i8]) -> Dimension {
     let mut e = Dimension::new(name, DimensionKind::Generic).edit();
     let mut ids = vec![e.add("m0").unwrap()];
     for (i, p) in parents.iter().enumerate() {
