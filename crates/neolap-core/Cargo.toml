@@ -11,3 +11,8 @@ repository.workspace = true
 [dependencies]
 serde.workspace = true
 thiserror.workspace = true
+csv.workspace = true
+parking_lot.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

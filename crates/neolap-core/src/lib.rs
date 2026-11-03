@@ -5,9 +5,16 @@
 //! language, persistence, import/export and access control.
 //! See `docs/Implementierungsplan.md` for the roadmap (milestones M1–M6).
 //!
-//! Milestone M0 only provides the basic vocabulary shared by all front ends.
+//! Milestone M0 provides the basic vocabulary shared by all front ends, M1 the dimension model
+//! (see [`dimension`]).
 
 use serde::Serialize;
+
+pub mod dimension;
+
+pub use dimension::{
+    AttrValue, Dimension, DimensionEditor, DimensionKind, LeafSet, LeafShape, Subset,
+};
 
 /// Crate version, shared by CLI, server and Python module.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -24,6 +31,15 @@ pub enum Error {
     /// The operation is not allowed in the current state or for the current user.
     #[error("invalid operation: {0}")]
     InvalidOperation(String),
+    /// The hierarchy of a dimension contains a cycle.
+    #[error("cycle in hierarchy of dimension '{dimension}' involving '{member}'")]
+    Cycle { dimension: String, member: String },
+    /// Name, alias or path-weight conflict (e.g. a leaf reachable with contradicting weights).
+    #[error("conflict: {0}")]
+    Conflict(String),
+    /// Input (CSV, specification, …) could not be parsed.
+    #[error("parse error: {0}")]
+    Parse(String),
 }
 
 /// Convenience result type.
