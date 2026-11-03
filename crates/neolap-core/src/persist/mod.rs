@@ -4,6 +4,7 @@
 //! is applied in memory (write-through, WAL), so a crash or abort never leaves a half-applied
 //! operation. See `docs/Implementierungsplan.md`, chapter 4.5.
 
+mod access;
 mod schema;
 mod users;
 
@@ -21,8 +22,9 @@ use crate::dimension::{Dimension, DimensionData};
 use crate::exchange::{ImportReport, ImportSpec, SourceKind};
 use crate::{Error, MemberId, Result};
 
+pub use access::{Access, CubeRights, Grant};
 pub use schema::SCHEMA_VERSION;
-pub use users::{MIN_PASSWORD_LEN, Role, User};
+pub use users::{MIN_PASSWORD_LEN, Role, User, random_bytes_16};
 
 /// Default retention of journal entries.
 pub const DEFAULT_JOURNAL_DAYS: i64 = 90;
@@ -90,6 +92,29 @@ pub(crate) fn decode_key(k: &[u8]) -> Result<Vec<MemberId>> {
         .iter()
         .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect())
+}
+
+/// Date and time for file names, `20261103-201500` (UTC).
+pub fn timestamp_label() -> String {
+    let secs = now();
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // civil-from-days (Howard Hinnant)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{y:04}{m:02}{d:02}-{:02}{:02}{:02}",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 pub(crate) fn now() -> i64 {
@@ -359,13 +384,13 @@ impl Database {
         let mut staged: Vec<Dropped> = Vec::new();
         for cube_name in &users {
             let cube = &self.cubes[cube_name];
-            for (i, d) in cube
+            for i in cube
                 .dimensions()
                 .iter()
                 .enumerate()
                 .filter(|(_, d)| d.name() == name)
+                .map(|(i, _)| i)
             {
-                let _ = d;
                 let dropped: Vec<(Vec<MemberId>, f64)> = cube
                     .export_cells()
                     .into_iter()

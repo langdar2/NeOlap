@@ -1,6 +1,8 @@
 # NeOlap – Implementierungsplan
 
-Version 4 · Stand 03.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
+Version 5 · Stand 03.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
+
+Änderungen gegenüber Version 4: Mehrbenutzer-Server umgesetzt (Kap. 6); Lesen gilt je Cube, Schreiben je Zelle (E51) – Leserechte auf Elementebene bleiben Phase 2; erster Administrator über Umgebungsvariablen (E55); Import in zwei Schritten (E56).
 
 Änderungen gegenüber Version 3: Speicher- und Indexdesign nach Messung in M2 geändert (kein Roaring-Index, Abfrage per paralleler Spaltenabtastung; Kap. 4.2).
 
@@ -253,7 +255,7 @@ Dimensionsimport aus Eltern-Kind-Listen (`child;parent;weight`) oder Ebenenspalt
 | Planer | Lesen und Schreiben im freigegebenen Bereich, Importe ausführen |
 | Leser | Nur lesen |
 
-Rechte je Cube: lesen / schreiben / kein Zugriff. Zusätzlich Bereichsrechte über Elemente einer oder mehrerer Dimensionen (z. B. Planer „Nord“ darf nur unter `regions:'Nord'` und `version:'Plan'` schreiben). Ein Recht auf ein Aggregat gilt für alle Nachfahren. Bei Splash und Import muss jede betroffene Basiszelle beschreibbar sein, sonst wird die gesamte Operation abgelehnt (mit Angabe des ersten Verstoßes). Leserechte auf Elementebene (Ausblenden von Elementen) sind Phase 2.
+Rechte je Cube: lesen / schreiben / kein Zugriff. **Lesen gilt je Cube, Schreiben je Zelle** (E51): wer einen Cube lesen darf, liest ihn vollständig. Zusätzlich Bereichsrechte über Elemente einer oder mehrerer Dimensionen (z. B. Planer „Nord“ darf nur unter `regions:'Nord'` und `version:'Plan'` schreiben). Ein Recht auf ein Aggregat gilt für alle Nachfahren. Bei Splash und Import muss jede betroffene Basiszelle beschreibbar sein, sonst wird die gesamte Operation abgelehnt (mit Angabe des ersten Verstoßes). Leserechte auf Elementebene (Ausblenden von Elementen) sind Phase 2.
 
 ### 6.3 REST-API
 

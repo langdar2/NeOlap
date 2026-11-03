@@ -463,3 +463,98 @@ fn a_database_in_use_is_refused_and_errors_set_the_exit_code() {
     assert!(String::from_utf8_lossy(&o.stdout).contains("NeOlap"));
     assert!(!neolap().output().unwrap().status.success()); // no command → usage error
 }
+
+/// Starts `neolap serve` on a free port with the given admin settings; returns the exit status if it
+/// stopped by itself within a second, or `None` if it kept running (and was stopped by the test).
+fn serve_with(
+    user: Option<&str>,
+    password: Option<&str>,
+) -> (Option<std::process::ExitStatus>, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut cmd = neolap();
+    cmd.args([
+        "serve",
+        "--listen",
+        &format!("127.0.0.1:{port}"),
+        "--data-dir",
+    ])
+    .arg(dir.path());
+    cmd.env_remove("NEOLAP_ADMIN_USER")
+        .env_remove("NEOLAP_ADMIN_PASSWORD");
+    if let Some(u) = user {
+        cmd.env("NEOLAP_ADMIN_USER", u);
+    }
+    if let Some(p) = password {
+        cmd.env("NEOLAP_ADMIN_PASSWORD", p);
+    }
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    for _ in 0..30 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if let Some(status) = child.try_wait().unwrap() {
+            let mut err = String::new();
+            std::io::Read::read_to_string(&mut child.stderr.take().unwrap(), &mut err).unwrap();
+            return (Some(status), err);
+        }
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            break;
+        }
+    }
+    child.kill().ok();
+    let out = child.wait_with_output().unwrap();
+    (
+        None,
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr),
+    )
+}
+
+#[test]
+fn the_server_starts_with_empty_or_complete_admin_settings_as_docker_compose_passes_them() {
+    // Compose passes `${VAR:-}` as an empty string when nothing is set: that must still start
+    let (exit, log) = serve_with(Some(""), Some(""));
+    assert!(
+        exit.is_none(),
+        "must keep running, stopped with {exit:?}: {log}"
+    );
+    assert!(
+        log.contains("no users"),
+        "warns that nobody can log in: {log}"
+    );
+    let (exit, log) = serve_with(None, None);
+    assert!(exit.is_none(), "{log}");
+    let (exit, log) = serve_with(Some("dirk"), Some("a very long secret"));
+    assert!(exit.is_none(), "{log}");
+    assert!(
+        log.contains("created the first administrator 'dirk'"),
+        "{log}"
+    );
+    assert!(
+        !log.contains("a very long secret"),
+        "the password never reaches the log"
+    );
+}
+
+#[test]
+fn half_given_or_weak_admin_settings_stop_the_server_with_a_clear_message() {
+    let (exit, err) = serve_with(Some("dirk"), None);
+    assert!(
+        exit.is_some_and(|s| !s.success()) && err.contains("NEOLAP_ADMIN_PASSWORD"),
+        "{err}"
+    );
+    let (exit, err) = serve_with(Some(""), Some("a very long secret"));
+    assert!(
+        exit.is_some_and(|s| !s.success()) && err.contains("NEOLAP_ADMIN_USER"),
+        "{err}"
+    );
+    let (exit, err) = serve_with(Some("dirk"), Some("short"));
+    assert!(
+        exit.is_some_and(|s| !s.success()) && err.contains("at least 10"),
+        "{err}"
+    );
+}

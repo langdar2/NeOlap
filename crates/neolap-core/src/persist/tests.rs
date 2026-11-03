@@ -679,3 +679,204 @@ fn roles_are_ordered_and_parse_in_both_languages() {
     assert_eq!(Role::parse(" MODELLIERER ").unwrap(), Role::Modeler);
     assert!(Role::parse("boss").is_err());
 }
+
+fn rights_db(path: &Path) -> Database {
+    let mut db = sample(path);
+    db.add_user("root", "a very long secret", Role::Admin, "system")
+        .unwrap();
+    db.add_user("pia", "a very long secret", Role::Planner, "root")
+        .unwrap();
+    db.add_user("rita", "a very long secret", Role::Reader, "root")
+        .unwrap();
+    db.add_user("mo", "a very long secret", Role::Modeler, "root")
+        .unwrap();
+    db
+}
+
+fn grant(user: &str, access: Access, area: &[(&str, &[&str])]) -> Grant {
+    Grant {
+        user: user.into(),
+        cube: "sales".into(),
+        access,
+        area: area
+            .iter()
+            .map(|(d, m)| {
+                (
+                    (*d).to_string(),
+                    m.iter().map(|x| (*x).to_string()).collect(),
+                )
+            })
+            .collect(),
+    }
+}
+
+fn can_write(db: &Database, user: &str, role: Role, cells: [&str; 2]) -> bool {
+    let r = db.rights(user, role, "sales").unwrap();
+    let cube = db.cube("sales").unwrap();
+    let addr = cube.address(&cells).unwrap();
+    let coords: Vec<u32> = cube
+        .dimensions()
+        .iter()
+        .zip(&addr)
+        .map(|(d, &m)| d.leaf_ordinal(m).unwrap())
+        .collect();
+    r.write_permission()(&coords)
+}
+
+#[test]
+fn without_a_grant_a_planner_sees_nothing() {
+    let (_d, path) = tmp();
+    let db = rights_db(&path);
+    let r = db.rights("pia", Role::Planner, "sales").unwrap();
+    assert!(!r.can_read_cube());
+    assert_eq!(r.best(), Access::None);
+    assert!(db.readable_cubes("pia", Role::Planner).unwrap().is_empty());
+    assert!(!can_write(&db, "pia", Role::Planner, ["Jan", "Sales"]));
+    // admins and modelers are limited by their role only
+    assert_eq!(db.readable_cubes("root", Role::Admin).unwrap(), ["sales"]);
+    assert!(can_write(&db, "mo", Role::Modeler, ["Jan", "Sales"]));
+}
+
+#[test]
+fn an_area_grant_covers_descendants_and_nothing_else() {
+    let (_d, path) = tmp();
+    let mut db = rights_db(&path);
+    // Q1 = Jan + Feb; the grant on the aggregate covers its base members
+    db.grant(
+        &grant(
+            "pia",
+            Access::Write,
+            &[("years", &["Q1"]), ("measures", &["Sales"])],
+        ),
+        "root",
+    )
+    .unwrap();
+    assert!(can_write(&db, "pia", Role::Planner, ["Jan", "Sales"]));
+    assert!(can_write(&db, "pia", Role::Planner, ["Feb", "Sales"]));
+    assert!(!can_write(&db, "pia", Role::Planner, ["Apr", "Sales"])); // other quarter
+    assert!(!can_write(&db, "pia", Role::Planner, ["Jan", "Cost"])); // other measure
+    assert!(db.readable_cubes("pia", Role::Planner).unwrap() == ["sales"]);
+    // the grant belongs to pia only
+    assert!(!can_write(&db, "rita", Role::Reader, ["Jan", "Sales"]));
+}
+
+#[test]
+fn a_reader_never_writes_even_with_a_write_grant() {
+    let (_d, path) = tmp();
+    let mut db = rights_db(&path);
+    db.grant(&grant("rita", Access::Write, &[]), "root")
+        .unwrap();
+    assert!(!can_write(&db, "rita", Role::Reader, ["Jan", "Sales"]));
+    assert!(
+        db.rights("rita", Role::Reader, "sales")
+            .unwrap()
+            .can_read_cube()
+    );
+    assert_eq!(
+        db.rights("rita", Role::Reader, "sales").unwrap().best(),
+        Access::Read
+    );
+}
+
+#[test]
+fn an_explicit_none_carves_a_hole_into_a_wider_grant() {
+    let (_d, path) = tmp();
+    let mut db = rights_db(&path);
+    db.grant(&grant("pia", Access::Write, &[]), "root").unwrap();
+    db.grant(
+        &grant("pia", Access::None, &[("measures", &["Cost"])]),
+        "root",
+    )
+    .unwrap();
+    assert!(can_write(&db, "pia", Role::Planner, ["Jan", "Sales"]));
+    assert!(!can_write(&db, "pia", Role::Planner, ["Jan", "Cost"]));
+    // `none` restricts writing; reading is per cube (see the module documentation of access.rs)
+    let r = db.rights("pia", Role::Planner, "sales").unwrap();
+    assert!(r.can_read_cube());
+}
+
+#[test]
+fn grants_are_validated_replaced_listed_and_revoked() {
+    let (_d, path) = tmp();
+    let mut db = rights_db(&path);
+    assert!(
+        db.grant(&grant("ghost", Access::Read, &[]), "root")
+            .is_err()
+    );
+    assert!(
+        db.grant(&grant("pia", Access::Read, &[("nope", &["x"])]), "root")
+            .is_err()
+    );
+    assert!(
+        db.grant(
+            &grant("pia", Access::Read, &[("years", &["Smarch"])]),
+            "root"
+        )
+        .is_err()
+    );
+    let mut other = grant("pia", Access::Read, &[]);
+    other.cube = "nocube".into();
+    assert!(db.grant(&other, "root").is_err());
+    db.grant(&grant("pia", Access::Read, &[("years", &["Q1"])]), "root")
+        .unwrap();
+    db.grant(&grant("pia", Access::Write, &[("years", &["Q1"])]), "root")
+        .unwrap(); // same area: replaces
+    let g = db.grants(Some("PIA")).unwrap();
+    assert_eq!(g.len(), 1);
+    assert_eq!(g[0].access, Access::Write);
+    assert_eq!(
+        db.revoke(
+            "pia",
+            "sales",
+            &[("years".into(), vec!["Q1".into()])],
+            "root"
+        )
+        .unwrap(),
+        1
+    );
+    assert!(db.grants(None).unwrap().is_empty());
+    drop(db);
+    let mut db = Database::open(&path).unwrap();
+    db.grant(&grant("pia", Access::Read, &[]), "root").unwrap();
+    drop(db);
+    assert_eq!(
+        Database::open(&path).unwrap().grants(None).unwrap().len(),
+        1
+    );
+}
+
+#[test]
+fn rights_enforced_through_the_cube_reject_the_whole_operation() {
+    let (_d, path) = tmp();
+    let mut db = rights_db(&path);
+    db.grant(&grant("pia", Access::Write, &[("years", &["Jan"])]), "root")
+        .unwrap();
+    let rights = db.rights("pia", Role::Planner, "sales").unwrap();
+    let mut ctx = WriteContext::new("pia");
+    ctx.can_write = Some(rights.write_permission());
+    let cube = db.cube_mut("sales").unwrap();
+    let jan = cube.address(&["Jan", "Sales"]).unwrap();
+    cube.write(&ctx, &jan, Input::Set(5.0)).unwrap();
+    let q1 = cube.address(&["Q1", "Sales"]).unwrap();
+    // Feb holds no value, so a proportional splash only changes Jan, where pia may write
+    cube.write(&ctx, &q1, Input::Set(100.0)).unwrap();
+    assert_eq!(cube.value(&jan).unwrap(), Some(100.0));
+    // an equal splash creates every combination of the area, including Feb: refused as a whole
+    let err = cube.write(&ctx, &q1, Input::Equal(200.0)).unwrap_err();
+    assert!(matches!(err, Error::Denied(m) if m.contains("Feb")));
+    assert_eq!(cube.value(&jan).unwrap(), Some(100.0), "nothing changed");
+    // once Feb holds a value, even the proportional splash reaches it and is refused
+    let feb = cube.address(&["Feb", "Sales"]).unwrap();
+    cube.set_base(&feb, Some(1.0)).unwrap();
+    let err = cube.write(&ctx, &q1, Input::Set(300.0)).unwrap_err();
+    assert!(matches!(err, Error::Denied(m) if m.contains("Feb")));
+    assert_eq!(cube.value(&q1).unwrap(), Some(101.0));
+}
+
+#[test]
+fn access_and_role_names_parse() {
+    assert_eq!(Access::parse("Schreiben").unwrap(), Access::Write);
+    assert_eq!(Access::parse(" NONE ").unwrap(), Access::None);
+    assert!(Access::parse("admin").is_err());
+    assert!(Access::None < Access::Read && Access::Read < Access::Write);
+}

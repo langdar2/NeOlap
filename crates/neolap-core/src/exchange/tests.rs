@@ -628,6 +628,70 @@ fn export_can_read_other_cubes_through_rules() {
     );
 }
 
+#[test]
+fn prepare_then_apply_equals_the_one_step_import() {
+    let mut one = cube();
+    run(&mut one, &spec(WIDE), FILE, false);
+    let mut two = cube();
+    let prepared =
+        prepare_import(&two, &spec(WIDE), SourceKind::Csv, FILE.as_bytes(), &ctx()).unwrap();
+    assert_eq!(two.n_cells(), 0, "preparing changes nothing");
+    assert!(prepared.report.dry_run && prepared.report.failed.is_none());
+    let report = apply_prepared(&mut two, prepared, &ctx()).unwrap();
+    assert_eq!(snapshot(&one), snapshot(&two));
+    assert!(!report.dry_run && report.op_id.is_some() && report.cells_created == 5);
+    // one undo step, like the one-step import
+    two.undo(&ctx()).unwrap();
+    assert_eq!(two.n_cells(), 0);
+}
+
+#[test]
+fn a_failed_preparation_applies_nothing() {
+    let mut c = cube();
+    let bad = "Monat;Region;Umsatz;Kosten\nXyz;Nord;1;1\n";
+    let prepared =
+        prepare_import(&c, &spec(WIDE), SourceKind::Csv, bad.as_bytes(), &ctx()).unwrap();
+    assert!(prepared.report.failed.is_some());
+    let report = apply_prepared(&mut c, prepared, &ctx()).unwrap();
+    assert!(report.failed.is_some());
+    assert_eq!(c.n_cells(), 0);
+}
+
+#[test]
+fn a_model_change_between_prepare_and_apply_is_detected() {
+    let mut c = cube();
+    let prepared =
+        prepare_import(&c, &spec(WIDE), SourceKind::Csv, FILE.as_bytes(), &ctx()).unwrap();
+    let mut ed = c.dimensions()[1].edit();
+    let total = ed.resolve("Total").unwrap();
+    ed.add_children(total, &["Mitte"]).unwrap();
+    c.replace_dimension(1, Arc::new(ed.commit().unwrap()))
+        .unwrap();
+    let err = apply_prepared(&mut c, prepared, &ctx()).unwrap_err();
+    assert!(matches!(err, Error::Conflict(m) if m.contains("run it again")));
+    assert_eq!(c.n_cells(), 0);
+}
+
+#[test]
+fn changed_cells_between_prepare_and_apply_are_a_conflict_for_the_importer() {
+    let mut c = cube();
+    let seen = c.generation();
+    let prepared =
+        prepare_import(&c, &spec(WIDE), SourceKind::Csv, FILE.as_bytes(), &ctx()).unwrap();
+    let a = c.address(&["Jan", "Nord", "Sales"]).unwrap();
+    c.write(&WriteContext::new("ben"), &a, Input::Set(7.0))
+        .unwrap();
+    let err = apply_prepared(&mut c, prepared, &ctx().expecting(seen)).unwrap_err();
+    assert!(matches!(err, Error::WriteConflict { user, .. } if user == "ben"));
+}
+
+#[test]
+fn creating_members_cannot_be_prepared_separately() {
+    let c = cube();
+    let s = spec(&WIDE.replace("reject", "create_under:Total"));
+    assert!(prepare_import(&c, &s, SourceKind::Csv, FILE.as_bytes(), &ctx()).is_err());
+}
+
 /// M6 target: import of 1 million CSV rows in < 10 s.
 /// `cargo test --release -p neolap-core -- --ignored --nocapture import_1m`
 #[test]
@@ -766,4 +830,70 @@ fn import_1m_persistent() {
         t.elapsed(),
         db.cube("c").unwrap().n_cells()
     );
+}
+
+/// Where does an import spend its time: reading/resolving rows or writing cells?
+/// `cargo test --release -p neolap-core -- --ignored --nocapture import_phases`
+#[test]
+#[ignore]
+fn import_phases() {
+    use std::time::Instant;
+    let mut e = Dimension::new("a", DimensionKind::Generic).edit();
+    let root = e.add("All").unwrap();
+    for i in 0..1000 {
+        let m = e.add(&format!("a{i}")).unwrap();
+        e.add_edge(root, m, 1.0).unwrap();
+    }
+    let a = Arc::new(e.commit().unwrap());
+    let mut e = Dimension::new("m", DimensionKind::Measures).edit();
+    for n in ["x", "y"] {
+        e.add(n).unwrap();
+    }
+    let m = Arc::new(e.commit().unwrap());
+    let mut e = Dimension::new("b", DimensionKind::Generic).edit();
+    let root = e.add("All").unwrap();
+    for i in 0..1000 {
+        let k = e.add(&format!("b{i}")).unwrap();
+        e.add_edge(root, k, 1.0).unwrap();
+    }
+    let b = Arc::new(e.commit().unwrap());
+    let mut cube = Cube::new("c", vec![a, b, m]);
+    let mut file = String::from("a,b,x,y\n");
+    for i in 0..1_000_000u64 {
+        file.push_str(&format!(
+            "a{},b{},{}.5,{}\n",
+            i % 1000,
+            (i / 1000) % 1000,
+            i % 97 + 1,
+            i % 13 + 1
+        ));
+    }
+    let s = spec(
+        "name='big'\ncube='c'\n[map]\na='a'\nb='b'\n[values]\nx='x'\ny='y'\n[options]\nmode='replace_area'\n",
+    );
+    let ctx = WriteContext::new("u");
+    let t = Instant::now();
+    run_import(
+        &mut cube,
+        &s,
+        SourceKind::Csv,
+        file.as_bytes(),
+        &ctx,
+        true,
+        None,
+    )
+    .unwrap();
+    println!("read + resolve + check (dry run): {:?}", t.elapsed());
+    let t = Instant::now();
+    run_import(
+        &mut cube,
+        &s,
+        SourceKind::Csv,
+        file.as_bytes(),
+        &ctx,
+        false,
+        None,
+    )
+    .unwrap();
+    println!("whole import (dry run work + write): {:?}", t.elapsed());
 }

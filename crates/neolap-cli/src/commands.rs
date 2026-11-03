@@ -136,6 +136,21 @@ pub enum DataCommand {
         listen: std::net::SocketAddr,
         #[arg(long, env = "NEOLAP_DATA_DIR", default_value = "./data")]
         data_dir: PathBuf,
+        /// File name of the database inside the data directory (created if missing).
+        #[arg(long, env = "NEOLAP_DATABASE", default_value = "neolap.neolap")]
+        database: String,
+        /// Mark the session cookie `Secure` (needs HTTPS, e.g. the Caddy profile).
+        #[arg(long, env = "NEOLAP_SECURE_COOKIES")]
+        secure_cookies: bool,
+        /// Trust the `X-Forwarded-For` header (only behind a reverse proxy you control).
+        #[arg(long, env = "NEOLAP_TRUST_PROXY")]
+        trust_proxy: bool,
+        /// Name of the first administrator, created at start if the database has no user yet.
+        #[arg(long, env = "NEOLAP_ADMIN_USER")]
+        admin_user: Option<String>,
+        /// Password of the first administrator (an environment variable keeps it out of `ps`).
+        #[arg(long, env = "NEOLAP_ADMIN_PASSWORD", hide_env_values = true)]
+        admin_password: Option<String>,
     },
     /// Check whether a running server is healthy (exit code 0 = healthy).
     Healthcheck {

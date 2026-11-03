@@ -20,6 +20,9 @@ jobs:
       - name: Validate compose file
         run: docker compose config --quiet && docker compose --profile tls config --quiet
       - name: Build and start
+        env:
+          NEOLAP_ADMIN_USER: ci
+          NEOLAP_ADMIN_PASSWORD: ci-password-for-the-test
         run: docker compose up -d --build --wait --wait-timeout 120
       - name: Health and web UI
         run: |
@@ -27,6 +30,28 @@ jobs:
           curl -fsS http://127.0.0.1:8080/ | grep -q NeOlap
           docker compose ps
           test "$(docker inspect --format '{{.State.Health.Status}}' neolap-neolap-1)" = healthy
+      - name: Login, protected routes and data in the volume
+        run: |
+          U=http://127.0.0.1:8080/api/v1
+          # without login the API is closed
+          test "$(curl -s -o /dev/null -w '%{http_code}' $U/model)" = 401
+          # the first administrator from the environment can log in; a wrong password cannot
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'content-type: application/json' -d '{"user":"ci","password":"wrong wrong wrong"}' $U/login)" = 401
+          R=$(curl -fsS -c jar -H 'content-type: application/json' -d '{"user":"ci","password":"ci-password-for-the-test"}' $U/login)
+          CSRF=$(echo "$R" | sed 's/.*"csrf":"\([^"]*\)".*/\1/')
+          curl -fsS -b jar $U/me | grep -q '"role":"admin"'
+          # a write without the CSRF token is refused, with it a backup is written
+          test "$(curl -s -o /dev/null -w '%{http_code}' -b jar -X POST -H 'content-type: application/json' -d '{}' $U/admin/backup)" = 403
+          curl -fsS -b jar -H "x-csrf-token: $CSRF" -X POST -H 'content-type: application/json' -d '{}' $U/admin/backup | grep -q 'backup-'
+          # the data survives a restart (named volume), and the environment is not needed again
+          docker compose restart neolap
+          docker compose up -d --wait --wait-timeout 60
+          R=$(curl -fsS -c jar -H 'content-type: application/json' -d '{"user":"ci","password":"ci-password-for-the-test"}' $U/login)
+          echo "$R" | grep -q '"role":"admin"'
+          # the image has no shell, but the CLI can read the stopped database from a one-off container
+          docker compose stop neolap
+          docker compose run --rm --no-deps --entrypoint /usr/local/bin/neolap neolap user list /data/neolap.neolap | grep -q ci
+          docker compose up -d --wait --wait-timeout 60
       - name: Graceful shutdown on SIGTERM
         run: |
           docker compose stop -t 30 neolap

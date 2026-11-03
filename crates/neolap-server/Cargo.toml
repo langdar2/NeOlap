@@ -18,6 +18,11 @@ rust-embed.workspace = true
 mime_guess.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+parking_lot = "0.13"
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
 
 [dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3"
 tower.workspace = true

@@ -323,6 +323,14 @@ impl Database {
 
 static DUMMY_HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+/// 16 random bytes from the system's secure RNG (for session ids and CSRF tokens in the server).
+///
+/// # Panics
+/// If the operating system has no secure random source, which cannot be recovered from.
+pub fn random_bytes_16() -> [u8; 16] {
+    argon2::password_hash::try_generate_salt().expect("the system has no secure random source")
+}
+
 /// `bytes` (at most 32) random bytes from the system's secure RNG as hex, on every platform.
 fn random_hex(bytes: usize) -> Result<String> {
     use argon2::password_hash::try_generate_salt;

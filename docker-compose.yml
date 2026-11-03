@@ -9,8 +9,11 @@
 #   NEOLAP_DOMAIN=olap.example.de in .env setzen, dann
 #   docker compose --profile tls up -d
 #
-# Ressourcenbedarf: ca. 150 Byte RAM je gefüllter Basiszelle.
-# Beim Maximum von 20 Mio. Zellen also etwa 3 GB – Limit entsprechend setzen.
+# Ressourcenbedarf: ca. 100 Byte RAM je gefüllter Basiszelle (gemessen).
+# Beim Maximum von 20 Mio. Zellen also etwa 2,4 GB – das Standardlimit von 4 GB reicht.
+#
+# Erster Start: NEOLAP_ADMIN_USER und NEOLAP_ADMIN_PASSWORD in .env setzen (siehe .env.example),
+# sonst gibt es keinen Benutzer und niemand kann sich anmelden.
 
 name: neolap
 
@@ -22,6 +25,10 @@ services:
     environment:
       NEOLAP_LISTEN: 0.0.0.0:8080
       NEOLAP_DATA_DIR: /data
+      NEOLAP_ADMIN_USER: ${NEOLAP_ADMIN_USER:-}
+      NEOLAP_ADMIN_PASSWORD: ${NEOLAP_ADMIN_PASSWORD:-}
+      NEOLAP_SECURE_COOKIES: ${NEOLAP_SECURE_COOKIES:-false}
+      NEOLAP_TRUST_PROXY: ${NEOLAP_TRUST_PROXY:-false}
       RUST_LOG: ${NEOLAP_LOG:-info}
     ports:
       # Standard: nur vom eigenen Rechner erreichbar.

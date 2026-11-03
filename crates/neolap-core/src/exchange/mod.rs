@@ -7,7 +7,10 @@ mod spec;
 mod table;
 
 pub use export::{Cell, ExportSpec, ExportTable, Layout, export_table, to_csv, to_xlsx};
-pub use import::{ImportReport, RejectedRow, run_import, run_import_file};
+pub use import::{
+    ImportReport, PreparedImport, RejectedRow, apply_prepared, prepare_import, run_import,
+    run_import_file,
+};
 pub use spec::{ImportSpec, LoadMode, MapEntry, Options, SourceSpec, UnknownPolicy};
 pub use table::SourceKind;
 

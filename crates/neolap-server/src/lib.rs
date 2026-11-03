@@ -3,18 +3,45 @@
 //! Milestone M0 provides the router skeleton, a health endpoint and static
 //! delivery of the web UI that is compiled into the binary.
 
-use std::{net::SocketAddr, path::PathBuf};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use axum::{
     Json, Router,
     body::Body,
+    extract::DefaultBodyLimit,
     http::{StatusCode, Uri, header},
+    middleware,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, patch, post},
 };
 use rust_embed::RustEmbed;
 use serde::Serialize;
 use tower_http::trace::TraceLayer;
+
+mod api;
+mod auth;
+mod error;
+mod jobs;
+mod state;
+
+pub use state::AppState;
+
+/// Helpers for tests of this crate and of clients; not part of the stable API.
+#[doc(hidden)]
+pub mod testing {
+    use crate::state::Event;
+
+    /// A cell-change event, for driving the event stream in tests.
+    pub fn event(cube: &str, generation: u64) -> Event {
+        Event {
+            kind: "cells",
+            cube: Some(cube.to_string()),
+            generation,
+            user: "test".into(),
+            cells_changed: 1,
+        }
+    }
+}
 
 /// Web UI files from `<repo>/ui`, embedded at compile time.
 #[derive(RustEmbed)]
@@ -61,14 +88,49 @@ async fn api_not_found() -> Response {
         .into_response()
 }
 
-/// Builds the HTTP router (API + UI).
-pub fn router() -> Router {
+/// Builds the HTTP router (API + UI) on top of the shared state.
+pub fn router(state: Arc<AppState>) -> Router {
     let api = Router::new()
         .route("/health", get(health))
-        .fallback(api_not_found);
+        .route("/login", post(auth::login))
+        .route("/logout", post(auth::logout))
+        .route("/me", get(auth::me))
+        .route("/model", get(api::model))
+        .route("/dimensions/{d}/members", get(api::members))
+        .route("/dimensions/{d}", patch(api::patch_dimension))
+        .route("/cubes/{c}/view", post(api::view))
+        .route("/cubes/{c}/cell", get(api::cell))
+        .route("/cubes/{c}/write", post(api::write))
+        .route("/cubes/{c}/undo", post(api::undo))
+        .route("/cubes/{c}/rules", get(api::get_rules).put(api::put_rules))
+        .route("/cubes/{c}/export", get(jobs::export))
+        .route(
+            "/imports",
+            post(jobs::start_import).layer(DefaultBodyLimit::max(jobs::MAX_UPLOAD + 1024 * 1024)),
+        )
+        .route("/jobs/{id}", get(jobs::job))
+        .route("/journal", get(api::journal))
+        .route("/events", get(jobs::events))
+        .route("/admin/users", get(api::list_users).post(api::add_user))
+        .route(
+            "/admin/users/{name}",
+            patch(api::patch_user).delete(api::delete_user),
+        )
+        .route("/admin/users/{name}/token", post(api::create_token))
+        .route(
+            "/admin/grants",
+            get(api::list_grants)
+                .put(api::put_grant)
+                .delete(api::delete_grant),
+        )
+        .route("/admin/backup", post(api::backup))
+        .fallback(api_not_found)
+        .with_state(state);
     Router::new()
         .nest("/api/v1", api)
         .fallback(static_file)
+        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        .layer(middleware::from_fn(auth::security_headers))
         .layer(TraceLayer::new_for_http())
 }
 
@@ -79,20 +141,83 @@ pub struct ServerConfig {
     pub listen: SocketAddr,
     /// Directory for databases, journal and backups (a Docker volume in container setups).
     pub data_dir: PathBuf,
+    /// File name of the database inside `data_dir`.
+    pub database: String,
+    /// Plain-HTTP cookies (no `Secure` flag): for localhost and tests. Behind TLS set `false`.
+    pub insecure_cookies: bool,
+    /// Trust `X-Forwarded-For` (behind a reverse proxy such as the Caddy profile).
+    pub trust_proxy: bool,
+    /// First administrator, created at start if the database has no user yet.
+    pub initial_admin: Option<(String, String)>,
+}
+
+impl ServerConfig {
+    pub fn new(listen: SocketAddr, data_dir: PathBuf) -> Self {
+        ServerConfig {
+            listen,
+            data_dir,
+            database: "neolap.neolap".into(),
+            insecure_cookies: true,
+            trust_proxy: false,
+            initial_admin: None,
+        }
+    }
+}
+
+/// Opens (or creates) the database of the server.
+pub fn open_state(config: &ServerConfig) -> Result<Arc<AppState>, neolap_core::Error> {
+    std::fs::create_dir_all(&config.data_dir)?;
+    let path = config.data_dir.join(&config.database);
+    let mut db = if path.exists() {
+        neolap_core::Database::open(&path)?
+    } else {
+        neolap_core::Database::create(&path)?
+    };
+    if db.users()?.is_empty() {
+        match &config.initial_admin {
+            Some((name, password)) => {
+                db.add_user(name, password, neolap_core::persist::Role::Admin, "setup")?;
+                tracing::info!("created the first administrator '{name}'");
+            }
+            None => tracing::warn!(
+                "the database has no users, so nobody can log in. Set NEOLAP_ADMIN_USER and NEOLAP_ADMIN_PASSWORD for the first start, or stop the server and run `neolap user add <file> <name> --role admin`"
+            ),
+        }
+    }
+    Ok(AppState::new(
+        db,
+        config.data_dir.clone(),
+        config.insecure_cookies,
+        config.trust_proxy,
+    ))
 }
 
 /// Runs the server until Ctrl+C or SIGTERM (`docker stop`) is received.
 pub async fn serve(config: ServerConfig) -> std::io::Result<()> {
+    let state = open_state(&config).map_err(|e| std::io::Error::other(e.to_string()))?;
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(
-        "NeOlap {} listening on http://{} (data directory: {})",
+        "NeOlap {} listening on http://{} (data directory: {}, database: {})",
         neolap_core::VERSION,
         listener.local_addr()?,
-        config.data_dir.display()
+        config.data_dir.display(),
+        config.database
     );
-    axum::serve(listener, router())
+    if !config.listen.ip().is_loopback() && config.insecure_cookies {
+        tracing::warn!(
+            "listening on a non-local address with plain-HTTP cookies; use TLS (Caddy profile) outside trusted networks"
+        );
+    }
+    let app = router(state.clone()).into_make_service_with_connect_info::<SocketAddr>();
+    axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+    // wait for running jobs: an import is one transaction, so it either completes or never happened
+    let mut waited = 0;
+    while state.running_jobs() > 0 && waited < 300 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        waited += 1;
+    }
     tracing::info!("NeOlap stopped");
     Ok(())
 }
@@ -119,44 +244,4 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
     tracing::info!("shutdown requested, finishing open requests");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::{body::to_bytes, http::Request};
-    use tower::ServiceExt;
-
-    async fn get_path(path: &str) -> (StatusCode, String) {
-        let response = router()
-            .oneshot(Request::get(path).body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        let status = response.status();
-        let body = to_bytes(response.into_body(), 1 << 20).await.unwrap();
-        (status, String::from_utf8_lossy(&body).into_owned())
-    }
-
-    #[tokio::test]
-    async fn health_returns_version() {
-        let (status, body) = get_path("/api/v1/health").await;
-        assert_eq!(status, StatusCode::OK);
-        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(json["status"], "ok");
-        assert_eq!(json["version"], neolap_core::VERSION);
-    }
-
-    #[tokio::test]
-    async fn index_page_is_served() {
-        let (status, body) = get_path("/").await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(body.contains("NeOlap"));
-    }
-
-    #[tokio::test]
-    async fn unknown_api_path_is_json_404() {
-        let (status, body) = get_path("/api/v1/does-not-exist").await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        assert!(body.contains("unknown API endpoint"));
-    }
 }

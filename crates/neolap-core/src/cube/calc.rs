@@ -193,6 +193,12 @@ impl Cube {
             .map(|r| r.line)
     }
 
+    /// Whether a rule calculates this very cell (not merely a base cell below it).
+    pub fn cell_has_rule(&self, addr: &[MemberId]) -> bool {
+        let base = self.is_base_addr(addr);
+        self.valid_rules().any(|r| Self::applies(r, base, addr))
+    }
+
     /// Whether a rule influences this cell (directly or through base cells below it).
     pub(crate) fn rule_touches(&self, addr: &[MemberId]) -> bool {
         if self.rules.is_empty() {

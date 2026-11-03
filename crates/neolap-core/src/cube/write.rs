@@ -353,6 +353,32 @@ impl Cube {
         names.join(", ")
     }
 
+    /// Whether a value can be written to this cell at all, apart from rights and conflicts: the
+    /// same conditions [`write`](Self::write) checks first (no rule calculates it, and an
+    /// aggregate has no member with a weight other than 1). The user interface uses this to offer
+    /// only cells that will not be refused, so display and engine cannot disagree.
+    pub fn is_writable(&self, addr: &[MemberId]) -> bool {
+        match self.area_sets(addr) {
+            Ok(sets) => self.rule_lock(addr, &sets).is_none(),
+            Err(_) => false,
+        }
+    }
+
+    /// All base combinations (leaf ordinal per dimension) behind an address, or `None` if there
+    /// are more than `limit`. Used to prove that a user may write an aggregate cell.
+    pub fn area_base_coords(&self, addr: &[MemberId], limit: usize) -> Option<Vec<Vec<u32>>> {
+        let sets: Vec<Arc<LeafSet>> = self
+            .dims
+            .iter()
+            .zip(addr)
+            .map(|(d, &m)| d.leaf_set(m))
+            .collect();
+        if area_len(&sets) > limit as u128 {
+            return None;
+        }
+        Some(combos(&sets))
+    }
+
     /// Number of base combinations and filled cells behind an address.
     pub fn area_info(&self, addr: &[MemberId]) -> Result<AreaInfo> {
         let sets = self.area_sets(addr)?;
@@ -612,6 +638,22 @@ impl Cube {
     /// Everything is one operation: checked as a whole (rules, permissions, conflicts), applied
     /// completely or not at all, undoable as one step. Sums that become 0 delete the cell.
     pub fn bulk_write(&mut self, ctx: &WriteContext, req: BulkWrite) -> Result<BulkOutcome> {
+        let dry_run = req.dry_run;
+        let (mut outcome, changes) = self.plan_bulk(ctx, req)?;
+        if !dry_run {
+            outcome.result = Some(self.commit(&ctx.user, "import", true, changes)?);
+        }
+        Ok(outcome)
+    }
+
+    /// Checks a bulk write completely (rules, permissions, conflicts) and counts what it would
+    /// change, without changing anything. This is the whole expensive part of [`bulk_write`](Self::bulk_write)
+    /// and needs only shared access, so it can run while others read the cube.
+    pub fn check_bulk(&self, ctx: &WriteContext, req: BulkWrite) -> Result<BulkOutcome> {
+        self.plan_bulk(ctx, req).map(|(outcome, _)| outcome)
+    }
+
+    fn plan_bulk(&self, ctx: &WriteContext, req: BulkWrite) -> Result<(BulkOutcome, Vec<Change>)> {
         let n = self.dims.len();
         let mut target: HashMap<Vec<u32>, Option<f64>> = HashMap::new();
         if let Some(clear) = &req.clear {
@@ -685,10 +727,7 @@ impl Cube {
             )));
         }
         self.check_permission(ctx, &changes)?;
-        if !req.dry_run {
-            outcome.result = Some(self.commit(&ctx.user, "import", true, changes)?);
-        }
-        Ok(outcome)
+        Ok((outcome, changes))
     }
 
     /// Conflict check for a set of cell changes against a client's generation.

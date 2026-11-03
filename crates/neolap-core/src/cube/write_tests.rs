@@ -224,15 +224,13 @@ fn rounding_difference_goes_to_the_largest_cell() {
     assert_eq!(val(&c, &["Jan", "Sales"]), Some(66.67));
 }
 
-fn splash_cube(pa: &[usize], pb: &[usize], w: &[i8]) -> (Cube, Vec<Arc<Dimension>>) {
-    // weights must be 1 for splashing → use a weight vector of ones
-    let _ = w;
+fn splash_cube(pa: &[usize], pb: &[usize]) -> (Cube, Vec<Arc<Dimension>>) {
+    // splashing needs weights of 1: the generated trees get a weight vector of ones
     let ones = [0i8];
     let dims: Vec<Arc<Dimension>> = vec![
         Arc::new(random_tree("a", pa, &ones)),
         Arc::new(random_tree("b", pb, &ones)),
     ];
-    let _ = DimensionKind::Generic;
     (Cube::new("p", dims.clone()), dims)
 }
 
@@ -247,7 +245,7 @@ proptest! {
         pick in (any::<u16>(), any::<u16>()),
         mode in 0usize..4,
     ) {
-        let (mut cube, dims) = splash_cube(&pa, &pb, &[0]);
+        let (mut cube, dims) = splash_cube(&pa, &pb);
         for (x, y, v) in facts {
             let a = dims[0].leaf_member(x as u32 % dims[0].n_leaves()).unwrap();
             let b = dims[1].leaf_member(y as u32 % dims[1].n_leaves()).unwrap();

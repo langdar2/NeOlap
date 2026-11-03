@@ -46,6 +46,22 @@ pub struct ImportReport {
     pub failed: Option<String>,
 }
 
+/// The cells an import would write, ready to be applied later with [`apply_prepared`]. They hold
+/// only member ids, so the expensive part (reading and resolving the file) can run while others
+/// still read the cube, and only the short write needs the exclusive lock.
+#[derive(Debug, Clone)]
+pub struct PreparedImport {
+    write: BulkWrite,
+    /// Member slots per dimension at preparation time: a changed model makes the resolved member
+    /// ids void. (Changed *cells* are caught by `bulk_write` through the caller's expected generation.)
+    shape: Vec<usize>,
+    pub report: ImportReport,
+}
+
+fn shape_of(cube: &Cube) -> Vec<usize> {
+    cube.dimensions().iter().map(|d| d.len_slots()).collect()
+}
+
 /// Most rejected rows kept verbatim in the report.
 const MAX_LISTED: usize = 200;
 
@@ -214,6 +230,112 @@ pub fn run_import(
     dry_run: bool,
     create_members: Option<CreateMembers>,
 ) -> Result<ImportReport> {
+    run_import_inner(cube, spec, kind, data, ctx, dry_run, create_members).map(|(report, _)| report)
+}
+
+/// The reading half of an import, for callers that want to keep the exclusive lock short. It
+/// reads and resolves the whole file and checks the write completely (rules, permissions,
+/// conflicts), all with shared access: other users keep reading and writing the cube meanwhile.
+/// [`apply_prepared`] then writes in one short step. Not usable with `create_under` (creating
+/// members changes the model); for that policy this returns an error and the caller runs
+/// [`run_import`] instead.
+pub fn prepare_import(
+    cube: &Cube,
+    spec: &ImportSpec,
+    kind: SourceKind,
+    data: &[u8],
+    ctx: &WriteContext,
+) -> Result<PreparedImport> {
+    if matches!(spec.options.unknown_member, UnknownPolicy::CreateUnder(_)) {
+        return Err(Error::InvalidOperation(
+            "an import that creates members changes the model; it cannot be prepared separately"
+                .into(),
+        ));
+    }
+    let Resolved {
+        mut report, write, ..
+    } = resolve_import(cube, spec, kind, data, true, false)?;
+    report.dry_run = true;
+    report.generation = cube.generation();
+    let write = match write {
+        Some(w) => {
+            let outcome = cube.check_bulk(
+                ctx,
+                BulkWrite {
+                    dry_run: true,
+                    ..w.clone()
+                },
+            )?;
+            report.cells_created = outcome.created;
+            report.cells_updated = outcome.updated;
+            report.cells_deleted = outcome.deleted;
+            report.cells_unchanged = outcome.unchanged;
+            w
+        }
+        None => BulkWrite {
+            clear: None,
+            cells: Vec::new(),
+            mode: BulkMode::Overwrite,
+            dry_run: false,
+        },
+    };
+    Ok(PreparedImport {
+        write,
+        shape: shape_of(cube),
+        report,
+    })
+}
+
+/// Writes a prepared import as one operation. Fails with a conflict if the model or the cells
+/// changed since [`prepare_import`], because the resolved member ids may no longer be right.
+pub fn apply_prepared(
+    cube: &mut Cube,
+    prepared: PreparedImport,
+    ctx: &WriteContext,
+) -> Result<ImportReport> {
+    let mut report = prepared.report;
+    if report.failed.is_some() {
+        return Ok(report);
+    }
+    if shape_of(cube) != prepared.shape {
+        return Err(Error::Conflict(
+            "the model changed while the import was prepared; please run it again".into(),
+        ));
+    }
+    let mut write = prepared.write;
+    write.dry_run = false;
+    let outcome = cube.bulk_write(ctx, write)?;
+    report.dry_run = false;
+    report.cells_created = outcome.created;
+    report.cells_updated = outcome.updated;
+    report.cells_deleted = outcome.deleted;
+    report.cells_unchanged = outcome.unchanged;
+    if let Some(r) = outcome.result {
+        report.op_id = r.op_id;
+        report.generation = r.generation;
+    }
+    Ok(report)
+}
+
+/// Result of reading and resolving a file against a cube (the cube is not changed).
+struct Resolved {
+    report: ImportReport,
+    write: Option<BulkWrite>,
+    /// Unknown members per dimension index (policy `create_under`).
+    unknown: BTreeMap<usize, Vec<String>>,
+}
+
+/// Pass 1 and 2 of an import: reads the rows, resolves member names, collects rejections. With
+/// the policy `create_under` unknown members are *collected* and not resolved (the caller creates
+/// them first and resolves again).
+fn resolve_import(
+    cube: &Cube,
+    spec: &ImportSpec,
+    kind: SourceKind,
+    data: &[u8],
+    dry_run: bool,
+    skip_unknown: bool,
+) -> Result<Resolved> {
     let mut report = ImportReport {
         spec: spec.name.clone(),
         dry_run,
@@ -304,7 +426,7 @@ pub fn run_import(
         }
     }
 
-    // Create unknown members (policy create_under).
+    // Check the parent for unknown members (policy create_under); creating them is the caller's job.
     if let UnknownPolicy::CreateUnder(parent) = policy {
         for (d, names) in &unknown {
             let dim = &cube.dimensions()[*d];
@@ -333,24 +455,16 @@ pub fn run_import(
                 .extend(names.iter().map(|n| format!("{}: {n}", dim.name())));
         }
         if report.failed.is_some() {
-            return Ok(report);
-        }
-        if !dry_run && !unknown.is_empty() {
-            let Some(create) = create_members else {
-                return Err(Error::InvalidOperation("creating members during an import needs a database (use the persistent import)".into()));
-            };
-            for (d, names) in unknown {
-                create(
-                    cube,
-                    d,
-                    names.into_iter().map(|n| (n, parent.clone())).collect(),
-                )?;
-            }
+            return Ok(Resolved {
+                report,
+                write: None,
+                unknown: BTreeMap::new(),
+            });
         }
     }
 
     // Pass 2: resolve to base addresses.
-    let dry_unknown = dry_run && matches!(policy, UnknownPolicy::CreateUnder(_));
+    let dry_unknown = skip_unknown && matches!(policy, UnknownPolicy::CreateUnder(_));
     let mut cells: Vec<(Vec<MemberId>, f64)> = Vec::new();
     let mut covered: Vec<HashSet<MemberId>> = vec![HashSet::new(); n];
     for row in rows {
@@ -431,13 +545,20 @@ pub fn run_import(
             "{} row(s) rejected, nothing was loaded",
             report.rows_rejected
         ));
-        return Ok(report);
+        return Ok(Resolved {
+            report,
+            write: None,
+            unknown: BTreeMap::new(),
+        });
     }
     if dry_unknown {
-        return Ok(report);
+        return Ok(Resolved {
+            report,
+            write: None,
+            unknown,
+        });
     }
 
-    // Write: one operation.
     let clear = (spec.options.mode == LoadMode::ReplaceArea).then(|| {
         covered
             .into_iter()
@@ -448,17 +569,77 @@ pub fn run_import(
             })
             .collect()
     });
+    let write = BulkWrite {
+        clear,
+        cells,
+        mode: if spec.options.mode == LoadMode::Add {
+            BulkMode::Add
+        } else {
+            BulkMode::Overwrite
+        },
+        dry_run,
+    };
+    Ok(Resolved {
+        report,
+        write: Some(write),
+        unknown,
+    })
+}
+
+fn run_import_inner(
+    cube: &mut Cube,
+    spec: &ImportSpec,
+    kind: SourceKind,
+    data: &[u8],
+    ctx: &WriteContext,
+    dry_run: bool,
+    create_members: Option<CreateMembers>,
+) -> Result<(ImportReport, Option<BulkWrite>)> {
+    let creates = matches!(spec.options.unknown_member, UnknownPolicy::CreateUnder(_));
+    // First look. With `create_under` and a real run, unknown members are only collected.
+    let first = resolve_import(cube, spec, kind, data, dry_run, creates)?;
+    let mut resolved = first;
+    if creates {
+        let parent = match &spec.options.unknown_member {
+            UnknownPolicy::CreateUnder(p) => p.clone(),
+            _ => unreachable!("checked above"),
+        };
+        if resolved.report.failed.is_some() {
+            return Ok((resolved.report, None));
+        }
+        if !dry_run && !resolved.unknown.is_empty() {
+            let Some(create) = create_members else {
+                return Err(Error::InvalidOperation(
+                    "creating members during an import needs a database (use the persistent import)".into(),
+                ));
+            };
+            for (d, names) in std::mem::take(&mut resolved.unknown) {
+                create(
+                    cube,
+                    d,
+                    names.into_iter().map(|n| (n, parent.clone())).collect(),
+                )?;
+            }
+        }
+        if !dry_run {
+            // The model changed: resolve once more, now all members exist.
+            let members_created = std::mem::take(&mut resolved.report.members_created);
+            resolved = resolve_import(cube, spec, kind, data, false, false)?;
+            resolved.report.members_created = members_created;
+        }
+    }
+    let Resolved {
+        mut report, write, ..
+    } = resolved;
+    let Some(write) = write else {
+        return Ok((report, None));
+    };
+    report.generation = cube.generation();
     let outcome: BulkOutcome = cube.bulk_write(
         ctx,
         BulkWrite {
-            clear,
-            cells,
-            mode: if spec.options.mode == LoadMode::Add {
-                BulkMode::Add
-            } else {
-                BulkMode::Overwrite
-            },
             dry_run,
+            ..write.clone()
         },
     )?;
     report.cells_created = outcome.created;
@@ -469,7 +650,7 @@ pub fn run_import(
         report.op_id = r.op_id;
         report.generation = r.generation;
     }
-    Ok(report)
+    Ok((report, dry_run.then_some(write)))
 }
 
 /// Reads the source file named in the specification (relative to `base_dir`) and runs the import.
