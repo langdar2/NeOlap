@@ -182,14 +182,14 @@ proptest! {
     }
 }
 
-/// M2 benchmark: 10 million cells × 20 dimensions.
-/// `cargo test --release -p neolap-core -- --ignored --nocapture benchmark_10m`
+/// M2 benchmark: 20 million cells (the maximum) × 20 dimensions.
+/// `cargo test --release -p neolap-core -- --ignored --nocapture benchmark_20m`
 #[test]
 #[ignore]
-fn benchmark_10m() {
+fn benchmark_20m() {
     use std::time::Instant;
     const DIMS: usize = 20;
-    const CELLS: usize = 10_000_000;
+    const CELLS: usize = 20_000_000;
     // 1 root, 20 groups, 20 × 50 leaves (1,000 leaves + 21 aggregates).
     let dims: Vec<Arc<Dimension>> = (0..DIMS)
         .map(|i| {
@@ -267,5 +267,39 @@ fn benchmark_10m() {
     assert!(
         times.iter().all(|t| t.as_millis() < 100),
         "cold cell too slow"
+    );
+}
+
+/// Memory breakdown of the fact store (uniform random cells, 20 dimensions × 1,000 leaves).
+/// `cargo test --release -p neolap-core -- --ignored --nocapture memory_breakdown`
+#[test]
+#[ignore]
+fn memory_breakdown() {
+    const DIMS: usize = 20;
+    const CELLS: usize = 5_000_000;
+    let mut store = FactStore::new(DIMS);
+    let mut x: u64 = 88172645463325252;
+    let mut rnd = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    let mut coords = [0u32; DIMS];
+    while store.len() < CELLS {
+        for c in coords.iter_mut() {
+            *c = (rnd() % 1000) as u32;
+        }
+        store.set(&coords, 1.0);
+    }
+    let m = store.memory_stats();
+    let per = |b: usize| b as f64 / CELLS as f64;
+    println!(
+        "columns {:.1} B/cell, values {:.1}, hash {:.1}, counts {:.2}, total {:.1}",
+        per(m.columns),
+        per(m.values),
+        per(m.hash_index),
+        per(m.counts),
+        per(m.columns + m.values + m.hash_index + m.counts)
     );
 }

@@ -1,6 +1,8 @@
 # NeOlap – Implementierungsplan
 
-Version 3 · Stand 03.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
+Version 4 · Stand 03.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
+
+Änderungen gegenüber Version 3: Speicher- und Indexdesign nach Messung in M2 geändert (kein Roaring-Index, Abfrage per paralleler Spaltenabtastung; Kap. 4.2).
 
 Änderungen gegenüber Version 2: 20 Mio. gefüllte Basiszellen als festes Maximum bestätigt; Server-Betrieb überall per Docker Compose (Kap. 6.4), umgesetzt bereits in M0.
 
@@ -29,7 +31,7 @@ NeOlap ist ein leichtgewichtiges, modellgetriebenes MOLAP-Werkzeug im Geist von 
 | Hierarchietiefe | bis 50 Ebenen, ungleich verteilt (unbalancierte Bäume, Mehrfach-Eltern erlaubt) |
 | Gefüllte Basiszellen | bis 20 Mio. (festes Maximum über alle Cubes einer Datenbank) |
 | Gleichzeitige Nutzer | bis ca. 20 aktiv |
-| Speicherbedarf | ca. 100–150 Byte je gefüllter Basiszelle bei 20 Dimensionen → 20 Mio. Zellen ≈ 2–3 GB RAM; Container-Standardlimit 4 GB |
+| Speicherbedarf | ca. 100 Byte je gefüllter Basiszelle bei 20 Dimensionen (gemessen) → 20 Mio. Zellen ≈ 2,4 GB RAM; Container-Standardlimit 4 GB |
 | Einzelne Aggregatzelle über 10 Mio. Datensätze | < 100 ms (kalt), < 5 ms (aus Cache) |
 | Pivot-Ansicht 50 × 20 Zellen mit Nullunterdrückung | < 500 ms bei 10 Mio. Datensätzen |
 | Splash auf 100.000 Basiszellen inkl. Speichern | < 2 s |
@@ -80,7 +82,7 @@ Betriebsarten:
 | Server | `docker compose up -d` oder `neolap serve` – ein Prozess hält die Datenbank, Nutzer arbeiten per Browser, Python (`neolap.connect(url)`) oder CLI (`--server url`). Standard für gemeinsame Nutzung. |
 | Lokal | CLI oder Python öffnen die Datei direkt, exklusiv (Sperrdatei). Für Einzelarbeit, Tests, Notebooks, Batch-Importe bei gestopptem Server. |
 
-Zentrale Abhängigkeiten (aktuelle Versionen geprüft am 03.11.2026): `roaring` 0.12, `hashbrown` 0.17, `parking_lot` 0.13, `serde`/`serde_json`, `rusqlite` 0.41 (bundled), `thiserror` 2, `csv` 1.4, `calamine` 0.38, `rust_xlsxwriter` 0.102, `axum` 0.8, `tokio` 1.54, `tower-http` 0.7, `rust-embed` 8, `clap` 4.6, `argon2` 0.6, `tracing`, `pyo3` 0.30; Tests: `proptest`, `criterion`, `insta`.
+Zentrale Abhängigkeiten (aktuelle Versionen geprüft am 03.11.2026): `hashbrown` 0.17, `rayon` 1, `parking_lot` 0.13, `serde`/`serde_json`, `rusqlite` 0.41 (bundled), `thiserror` 2, `csv` 1.4, `calamine` 0.38, `rust_xlsxwriter` 0.102, `axum` 0.8, `tokio` 1.54, `tower-http` 0.7, `rust-embed` 8, `clap` 4.6, `argon2` 0.6, `tracing`, `pyo3` 0.30; Tests: `proptest`, `criterion`, `insta`.
 
 ## 4. Kern-Engine (neolap-core)
 
@@ -122,23 +124,22 @@ pub struct FactStore {
     n_dims: usize,
     cols: Vec<Vec<u32>>,                  // je Dimension eine Spalte mit leaf_ord der Zeile
     values: Vec<f64>,
-    key_index: RawTable<u32>,             // Hash über die Koordinaten → Zeile (ohne Schlüsselkopie)
-    free_rows: Vec<u32>, live: BitVec,
-    leaf_rows: Vec<HashMap<u32, RoaringBitmap>>, // je Dimension: Basiselement → Zeilen
-    stats: Vec<Vec<u32>>,                 // Zeilenzahl je Basiselement (für Selektivitätsschätzung)
+    key_index: HashTable<u32>,            // Hash über die Koordinaten → Zeile (ohne Schlüsselkopie)
+    free_rows: Vec<u32>, live: Vec<bool>,
+    counts: Vec<Vec<u32>>,                // je Dimension: Zeilenzahl je Basiselement (Selektivitätsschätzung)
 }
 ```
 
-Statt Indexmengen für jedes Aggregat (Original) gibt es nur Indexmengen für Basiselemente. Abfrage einer Zelle mit Aggregaten:
+Statt Indexmengen für jedes Aggregat (Original) gibt es keinen Zeilenindex pro Element, sondern nur Zeilenzähler je Basiselement. Der Roaring-Index der ersten Fassung kostete bei 20 Dimensionen rund 120 B je Zelle (mehr als alle Spalten zusammen); ein paralleler Spaltenscan über 20 Mio. Zeilen ist mit 2–5 ms schneller als der Umweg über Bitmaps. Abfrage einer Zelle mit Aggregaten:
 
-1. Für jede Dimension das `LeafSet` des angefragten Elements holen; geschätzte Trefferzahl aus `stats` (bei Bereichen über eine Präfixsumme in O(1)).
-2. Die selektivste Dimension wählen; deren Zeilenmenge als Vereinigung der Basis-Bitmaps bilden (bei sehr vielen Basiselementen: über Spalten-Scan mit Bereichsprüfung).
-3. Die übrigen Dimensionen als Filter: je Zeile Bereichsprüfung (`a <= leaf_ord < b`) oder Bit-Test; Dimensionen mit „alles“ (Wurzel ohne Gewichte) werden übersprungen.
-4. Summieren; Gewichte nur für Dimensionen mit Gewichtstabelle nachschlagen.
+1. Für jede Dimension das `LeafSet` des angefragten Elements holen; Dimensionen mit „alles“ (Wurzel ohne Gewichte) entfallen. Geschätzte Trefferzahl je Dimension aus den Zeilenzählern.
+2. Die aktiven Dimensionen nach Selektivität ordnen, damit die Prüfung je Zeile früh abbricht.
+3. Alle Zeilen parallel (`rayon`, Blöcke zu 64 Ki Zeilen) abtasten: je Dimension Bereichsprüfung (`a <= leaf_ord < b`) oder Bit-Test, Gewichte nur für Dimensionen mit Gewichtstabelle.
+4. Summieren; Ergebnis im Aggregat-Cache ablegen.
 
-Für Pivot-Ansichten gibt es zusätzlich einen Gruppierungspfad: Die Filterdimensionen erzeugen einmal die Zeilenmenge; dann werden alle Fakten in einem Durchlauf den sichtbaren Zeilen-/Spaltenelementen zugeordnet (Basiselement → sichtbare Vorfahren auf der Achse, vorab als Tabelle berechnet) und aufsummiert. Das ist bei großen Ansichten um Größenordnungen schneller als Zelle für Zelle und liefert die Nullunterdrückung gratis mit. Ansichten werden über `rayon` parallel berechnet. Ein Aggregat-Cache je Cube (Schlüssel: Zelladresse, Versionszähler) wird bei Schreibvorgängen gezielt invalidiert.
+Für Pivot-Ansichten gibt es zusätzlich einen Gruppierungspfad: Alle Fakten werden in einem Durchlauf den sichtbaren Zeilen-/Spaltenelementen zugeordnet (Basiselement → sichtbare Vorfahren auf der Achse, vorab als Tabelle berechnet) und aufsummiert. Das liefert die Nullunterdrückung gratis mit. Ein Aggregat-Cache je Cube (Schlüssel: Zelladresse) wird bei Schreibvorgängen geleert.
 
-Speicherbedarf bei 20 Dimensionen: Spalten 80 B, Wert 8 B, Hash-Index ca. 8 B, Basis-Bitmaps ca. 20–40 B je Zeile → rund 120–140 B pro gefüllter Zelle. Optionale spätere Optimierung: Bit-Packing der Spalten (19 Bit für 500.000 Elemente).
+Speicherbedarf bei 20 Dimensionen (gemessen, 20 Mio. Zellen, 20 × 1.000 Basiselemente): Spalten 85 B (Wachstum um 1/8 statt Verdoppeln), Wert + Lebend-Flag 10 B, Hash-Index 7 B → rund 102 B je Zelle, Prozessspeicher 2,4 GB. Ladezeit 20 Mio. Zellen im Speicher 7 s; Abfragen: Aggregatzelle kalt 2–5 ms, Pivot 50 × 20 in 4 ms. Optionale spätere Optimierung: Bit-Packing der Spalten (19 Bit für 500.000 Elemente).
 
 Werte sind `f64`. Leere Zellen sind „nicht vorhanden“, nicht 0; Schreiben von 0 oder leer löscht die Zelle.
 

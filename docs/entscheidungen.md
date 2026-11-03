@@ -2,6 +2,13 @@
 
 Kurzprotokoll der wesentlichen Entscheidungen. Neue Einträge oben anfügen.
 
+## 2026-11-03 – Speicherdesign (M2)
+
+| # | Entscheidung | Begründung |
+|---|---|---|
+| E15 | Kein Roaring-Zeilenindex je Basiselement; stattdessen Zeilenzähler und paralleler Spaltenscan | Gemessen: Index 121 B/Zelle (mehr als alle Spalten), Prozessspeicher 10 Mio. Zellen 2,0 GB. Ohne Index 102 B/Zelle, 20 Mio. Zellen 2,4 GB; Abfragen mit 2–5 ms schneller statt langsamer, Laden 6× schneller. Ändert E3 nur im Detail: Index bleibt auf Basiselementen, nicht auf Aggregaten |
+| E16 | Spaltenwachstum um 1/8 statt Verdoppeln | Verdoppeln kostete bis zu 50 B/Zelle Verschnitt |
+
 ## 2026-11-03 – Betrieb und Größenrahmen
 
 | # | Entscheidung | Begründung |

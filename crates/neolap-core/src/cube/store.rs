@@ -1,8 +1,6 @@
 //! Column-oriented storage of base cells.
 
 use hashbrown::HashTable;
-use roaring::RoaringBitmap;
-use std::collections::HashMap;
 
 /// Base cells of one cube. A cell is addressed by the DFS ordinal of its base member per dimension.
 pub struct FactStore {
@@ -15,8 +13,8 @@ pub struct FactStore {
     n_live: usize,
     /// Hash over the coordinates → row (no copy of the key).
     key_index: HashTable<u32>,
-    /// Per dimension: base member → rows.
-    leaf_rows: Vec<HashMap<u32, RoaringBitmap>>,
+    /// Per dimension: number of live rows per base ordinal (selectivity estimates).
+    counts: Vec<Vec<u32>>,
 }
 
 fn hash_coords(coords: impl Iterator<Item = u32>) -> u64 {
@@ -42,7 +40,7 @@ impl FactStore {
             free_rows: Vec::new(),
             n_live: 0,
             key_index: HashTable::new(),
-            leaf_rows: vec![HashMap::new(); n_dims],
+            counts: vec![Vec::new(); n_dims],
         }
     }
 
@@ -76,8 +74,11 @@ impl FactStore {
         &self.cols[dim]
     }
 
-    pub fn rows_of_leaf(&self, dim: usize, ord: u32) -> Option<&RoaringBitmap> {
-        self.leaf_rows[dim].get(&ord)
+    /// Number of filled cells with the given base member in dimension `dim`.
+    pub fn count_of_leaf(&self, dim: usize, ord: u32) -> usize {
+        self.counts[dim]
+            .get(ord as usize)
+            .map_or(0, |&c| c as usize)
     }
 
     fn find(&self, coords: &[u32]) -> Option<u32> {
@@ -109,6 +110,13 @@ impl FactStore {
                 r
             }
             None => {
+                if self.values.len() == self.values.capacity() {
+                    // Grow by 1/8 instead of doubling: at most 12.5 % slack in the columns.
+                    let extra = (self.values.len() / 8).max(1024);
+                    self.cols.iter_mut().for_each(|c| c.reserve_exact(extra));
+                    self.values.reserve_exact(extra);
+                    self.live.reserve_exact(extra);
+                }
                 for (d, &c) in coords.iter().enumerate() {
                     self.cols[d].push(c);
                 }
@@ -118,7 +126,11 @@ impl FactStore {
             }
         };
         for (d, &c) in coords.iter().enumerate() {
-            self.leaf_rows[d].entry(c).or_default().insert(row);
+            let counts = &mut self.counts[d];
+            if counts.len() <= c as usize {
+                counts.resize(c as usize + 1, 0);
+            }
+            counts[c as usize] += 1;
         }
         let cols = &self.cols;
         let n = self.n_dims;
@@ -138,12 +150,7 @@ impl FactStore {
             e.remove();
         }
         for (d, &c) in coords.iter().enumerate() {
-            if let Some(b) = self.leaf_rows[d].get_mut(&c) {
-                b.remove(row);
-                if b.is_empty() {
-                    self.leaf_rows[d].remove(&c);
-                }
-            }
+            self.counts[d][c as usize] -= 1;
         }
         self.live[row as usize] = false;
         self.free_rows.push(row);
@@ -159,5 +166,25 @@ impl FactStore {
                 self.values[r],
             )
         })
+    }
+}
+
+/// Memory use per component in bytes (from capacities).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MemoryStats {
+    pub columns: usize,
+    pub values: usize,
+    pub hash_index: usize,
+    pub counts: usize,
+}
+
+impl FactStore {
+    pub fn memory_stats(&self) -> MemoryStats {
+        MemoryStats {
+            columns: self.cols.iter().map(|c| c.capacity() * 4).sum(),
+            values: self.values.capacity() * 8 + self.live.capacity(),
+            hash_index: self.key_index.capacity() * 5,
+            counts: self.counts.iter().map(|c| c.capacity() * 4).sum(),
+        }
     }
 }

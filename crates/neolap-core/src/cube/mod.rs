@@ -11,15 +11,16 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use rayon::prelude::*;
-use roaring::RoaringBitmap;
 
 use crate::dimension::{Dimension, LeafSet};
 use crate::{Error, MemberId, Result};
 
-pub use store::FactStore;
+pub use store::{FactStore, MemoryStats};
 
-/// Sets with more base members than this are not turned into bitmap unions.
-const MAX_UNION_LEAVES: usize = 2048;
+/// Sets with more base members than this are not summed up for the row estimate.
+const MAX_ESTIMATE_LEAVES: usize = 2048;
+/// Rows per parallel scan task.
+const SCAN_CHUNK: usize = 64 * 1024;
 /// Upper bound of cached aggregate cells.
 const CACHE_CAPACITY: usize = 200_000;
 
@@ -193,22 +194,16 @@ impl Cube {
             return None;
         }
         let total = self.store.len();
-        // Active dimensions (not "all") with an estimate of the matching rows.
+        // Active dimensions (not "all"), most selective first, so the scan can stop early per row.
         let mut active: Vec<(usize, usize)> = Vec::new();
         for (d, set) in sets.iter().enumerate() {
             if is_all(set, self.dims[d].n_leaves()) {
                 continue;
             }
-            let est = if set.len() > MAX_UNION_LEAVES {
+            let est = if set.len() > MAX_ESTIMATE_LEAVES {
                 total
             } else {
-                set.iter()
-                    .map(|o| {
-                        self.store
-                            .rows_of_leaf(d, o)
-                            .map_or(0, |b| b.len() as usize)
-                    })
-                    .sum()
+                set.iter().map(|o| self.store.count_of_leaf(d, o)).sum()
             };
             if est == 0 {
                 return None;
@@ -216,43 +211,32 @@ impl Cube {
             active.push((d, est));
         }
         active.sort_by_key(|a| a.1);
-
+        let active: Vec<usize> = active.into_iter().map(|a| a.0).collect();
         let weighted: Vec<usize> = (0..sets.len()).filter(|&d| sets[d].has_weights()).collect();
-        let mut sum = 0.0;
-        let mut hit = false;
-        let mut visit = |row: usize| {
-            for &(d, _) in active.iter().skip(1) {
-                if !sets[d].contains(self.store.col(d)[row]) {
-                    return;
-                }
-            }
-            let mut v = self.store.value(row);
-            for &d in &weighted {
-                v *= f64::from(sets[d].weight(self.store.col(d)[row]));
-            }
-            sum += v;
-            hit = true;
-        };
-        match active.first() {
-            None => (0..self.store.n_rows())
-                .filter(|&r| self.store.is_live(r))
-                .for_each(&mut visit),
-            Some(&(d, _)) if sets[d].len() <= MAX_UNION_LEAVES => {
-                let mut rows = RoaringBitmap::new();
-                for o in sets[d].iter() {
-                    if let Some(b) = self.store.rows_of_leaf(d, o) {
-                        rows |= b;
+
+        let store = &self.store;
+        let (sum, hit) = (0..store.n_rows())
+            .step_by(SCAN_CHUNK)
+            .collect::<Vec<_>>()
+            .into_par_iter()
+            .map(|start| {
+                let (mut sum, mut hit) = (0.0, false);
+                for row in start..(start + SCAN_CHUNK).min(store.n_rows()) {
+                    if !store.is_live(row)
+                        || !active.iter().all(|&d| sets[d].contains(store.col(d)[row]))
+                    {
+                        continue;
                     }
+                    let mut v = store.value(row);
+                    for &d in &weighted {
+                        v *= f64::from(sets[d].weight(store.col(d)[row]));
+                    }
+                    sum += v;
+                    hit = true;
                 }
-                rows.iter().for_each(|r| visit(r as usize));
-            }
-            Some(&(d, _)) => {
-                let col = self.store.col(d);
-                (0..self.store.n_rows())
-                    .filter(|&r| self.store.is_live(r) && sets[d].contains(col[r]))
-                    .for_each(&mut visit);
-            }
-        }
+                (sum, hit)
+            })
+            .reduce(|| (0.0, false), |a, b| (a.0 + b.0, a.1 | b.1));
         hit.then_some(sum)
     }
 
