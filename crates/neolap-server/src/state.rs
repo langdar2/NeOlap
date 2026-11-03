@@ -77,6 +77,8 @@ pub struct AppState {
     sessions: Mutex<HashMap<String, Session>>,
     failures: Mutex<HashMap<String, Vec<Instant>>>,
     pub events: broadcast::Sender<Event>,
+    /// Set when the server shuts down: long-lived streams (SSE) end, so the shutdown can finish.
+    closing: tokio::sync::watch::Sender<bool>,
     jobs: Mutex<HashMap<String, Job>>,
     /// Allow `Secure`-less cookies (plain HTTP on localhost); set false behind TLS.
     pub insecure_cookies: bool,
@@ -92,12 +94,14 @@ impl AppState {
         trust_proxy: bool,
     ) -> Arc<AppState> {
         let (events, _) = broadcast::channel(EVENT_BACKLOG);
+        let (closing, _) = tokio::sync::watch::channel(false);
         Arc::new(AppState {
             db: RwLock::new(db),
             data_dir,
             sessions: Mutex::new(HashMap::new()),
             failures: Mutex::new(HashMap::new()),
             events,
+            closing,
             jobs: Mutex::new(HashMap::new()),
             insecure_cookies,
             trust_proxy,
@@ -205,6 +209,20 @@ impl AppState {
         self.failures
             .lock()
             .remove(&format!("u:{}", user.to_lowercase()));
+    }
+
+    // ---- shutdown ----
+
+    /// Tells long-lived streams to end. Called when the server starts to shut down.
+    pub fn begin_shutdown(&self) {
+        let _ = self.closing.send(true);
+    }
+
+    /// Completes when [`begin_shutdown`](Self::begin_shutdown) was called.
+    pub async fn shutdown_requested(&self) {
+        let mut rx = self.closing.subscribe();
+        // `wait_for` also returns at once if the value was already set
+        let _ = rx.wait_for(|closing| *closing).await;
     }
 
     // ---- events ----

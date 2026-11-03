@@ -372,33 +372,36 @@ pub async fn events(
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
     let rx = s.events.subscribe();
     let state = s.clone();
-    let stream = BroadcastStream::new(rx).filter_map(move |item| {
-        let state = state.clone();
-        let auth = auth.clone();
-        async move {
-            match item {
-                Ok(ev) => {
-                    // events of cubes the caller may not read are not sent (their existence stays hidden)
-                    let allowed = match &ev.cube {
-                        None => true,
-                        Some(c) => state
-                            .db
-                            .read()
-                            .rights(&auth.user.name, auth.user.role, c)
-                            .is_ok_and(|r| r.can_read_cube()),
-                    };
-                    allowed.then(|| {
-                        Ok(SseEvent::default()
-                            .event(ev.kind)
-                            .json_data(&ev)
-                            .unwrap_or_default())
-                    })
-                }
-                Err(BroadcastStreamRecvError::Lagged(n)) => {
-                    Some(Ok(SseEvent::default().event("resync").data(n.to_string())))
+    let closing = s.clone();
+    let stream = BroadcastStream::new(rx)
+        .take_until(async move { closing.shutdown_requested().await })
+        .filter_map(move |item| {
+            let state = state.clone();
+            let auth = auth.clone();
+            async move {
+                match item {
+                    Ok(ev) => {
+                        // events of cubes the caller may not read are not sent (their existence stays hidden)
+                        let allowed = match &ev.cube {
+                            None => true,
+                            Some(c) => state
+                                .db
+                                .read()
+                                .rights(&auth.user.name, auth.user.role, c)
+                                .is_ok_and(|r| r.can_read_cube()),
+                        };
+                        allowed.then(|| {
+                            Ok(SseEvent::default()
+                                .event(ev.kind)
+                                .json_data(&ev)
+                                .unwrap_or_default())
+                        })
+                    }
+                    Err(BroadcastStreamRecvError::Lagged(n)) => {
+                        Some(Ok(SseEvent::default().event("resync").data(n.to_string())))
+                    }
                 }
             }
-        }
-    });
+        });
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(20)))
 }

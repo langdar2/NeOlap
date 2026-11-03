@@ -500,7 +500,15 @@ pub async fn cell(
             CellValue::Error(e) => json!(e.to_string()),
             CellValue::Empty => Value::Null,
         };
-        Ok(Json(json!({ "value": value, "generation": c.generation(), "version": c.cell_version(&addr).ok().flatten().map(|v| json!({ "user": v.user, "generation": v.generation })) })))
+        // How many base cells an input on this cell reaches (the user interface shows it before a
+        // splash, plan chapter 4.3). Left out for cells that cannot be written to (weights).
+        let area = c.area_info(&addr).ok().map(|a| json!({ "base_cells": a.base_cells.to_string(), "filled_cells": a.filled_cells }));
+        Ok(Json(json!({
+            "value": value,
+            "generation": c.generation(),
+            "area": area,
+            "version": c.cell_version(&addr).ok().flatten().map(|v| json!({ "user": v.user, "generation": v.generation })),
+        })))
     })
     .await
 }

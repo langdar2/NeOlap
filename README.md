@@ -2,7 +2,7 @@
 
 Leichtgewichtige, modellgetriebene multidimensionale Datenbank (MOLAP) im Geist von MIS Alea und TM1 – mit Rückschreiben auf jeder Ebene, Rechenregeln, Datenimporten und gemeinsamer Nutzung im Browser. Geschrieben in Rust, ausgeliefert als einzelnes Programm für macOS, Linux und Windows.
 
-> **Status:** Meilensteine M0–M8 sind umgesetzt: Engine (Dimensionen, Abfrage, Rückschreiben, Regeln, Persistenz, Import/Export), Kommandozeile und Mehrbenutzer-Server mit REST-API. **Die Web-Oberfläche (Pivot-Raster, M9) und das Python-Modul (M10) fehlen noch**: Die Startseite zeigt nur den Serverstatus. Bedienung heute über Kommandozeile und REST-API. Details und Roadmap: [docs/Implementierungsplan.md](docs/Implementierungsplan.md).
+> **Status:** Meilensteine M0–M9 sind umgesetzt: Engine (Dimensionen, Abfrage, Rückschreiben, Regeln, Persistenz, Import/Export), Kommandozeile, Mehrbenutzer-Server mit REST-API und Web-Oberfläche. **Das Python-Modul (M10) fehlt noch.** Die Web-Oberfläche ist im Headless-Browser geprüft, aber noch nicht von einer Person am Mac abgenommen (Abnahme-Checkliste des Plans). Details und Roadmap: [docs/Implementierungsplan.md](docs/Implementierungsplan.md).
 
 ## Funktionen (v1)
 
@@ -13,7 +13,8 @@ Leichtgewichtige, modellgetriebene multidimensionale Datenbank (MOLAP) im Geist 
 - Wiederholbare Datenimporte aus CSV/xlsx, Export nach CSV/xlsx
 - Mehrbenutzer-Server mit Anmeldung, Rollen, Schreibrechten bis auf Elementebene, Konflikterkennung, Live-Ereignissen (SSE) und Änderungsjournal
 - Kommandozeile `neolap` (lokal auf einer Datei)
-- noch offen: Web-Oberfläche mit Pivot-Raster (M9), Python-Modul `neolap` (M10)
+- Web-Oberfläche: Pivot-Raster mit Aufklappen, Eingabe in der Zelle (Splash-Syntax), Einfügen aus Tabellenkalkulationen, Undo (Strg+Z), Konfliktdialog, Live-Aktualisierung; Dimensions- und Regeleditor, Import mit Vorschau, Journal, Verwaltung
+- noch offen: Python-Modul `neolap` (M10)
 
 ## Starten mit Docker Compose (Server)
 
@@ -28,7 +29,7 @@ docker compose down               # stoppen – Daten bleiben im Volume "neolap-
 
 **Erster Start:** Ohne Benutzer kann sich niemand anmelden. Setze deshalb in `.env` `NEOLAP_ADMIN_USER` und `NEOLAP_ADMIN_PASSWORD`; der Server legt damit beim ersten Start den Administrator an (die Zeilen danach aus der Datei entfernen). Weitere Benutzer legt der Admin über die REST-API an (`POST /api/v1/admin/users`) oder, bei gestopptem Server, mit `neolap user add`. Die Datenbank liegt im Volume als `/data/neolap.neolap`.
 
-Anmelden und eine Zelle lesen (Beispiel, die Web-Oberfläche folgt in M9):
+Die Web-Oberfläche liegt unter `http://localhost:8080`. Anmelden und eine Zelle lesen über die REST-API (Beispiel):
 
 ```sh
 curl -c jar -H 'content-type: application/json' -d '{"user":"admin","password":"…"}' http://localhost:8080/api/v1/login
@@ -46,7 +47,8 @@ Standardmäßig ist der Server nur vom eigenen Rechner erreichbar (`127.0.0.1`).
 Voraussetzung: Rust ≥ 1.89 ([rustup.rs](https://rustup.rs)).
 
 ```sh
-cargo test                       # Tests
+cargo test                       # Tests der Engine, des Servers und der Kommandozeile
+node --test ui/tests/*.test.js   # Tests der Web-Oberfläche (Node ≥ 22, keine Abhängigkeiten)
 cargo run -p neolap-cli -- version
 cargo run -p neolap-cli -- serve # Web-UI auf http://127.0.0.1:8080
 ```

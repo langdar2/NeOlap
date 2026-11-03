@@ -120,7 +120,10 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
         .or_insert(HeaderValue::from_static("no-store"));
     h.insert(
         header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static("default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'"),
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
+             connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'",
+        ),
     );
     res
 }
@@ -226,6 +229,20 @@ pub async fn logout(
         res.headers_mut().insert(header::SET_COOKIE, v);
     }
     res
+}
+
+/// Like [`me`], but "nobody is logged in" is an answer (`200`, `user: null`), not an error. The web
+/// UI asks this on every start; a 401 there would show up as a red console error each time.
+pub async fn session(State(state): State<Arc<AppState>>, req: Request) -> Json<serde_json::Value> {
+    let (parts, _) = req.into_parts();
+    match authenticate(&state, &parts.headers, &parts.method) {
+        Ok(auth) => Json(serde_json::json!({
+            "user": auth.user.name,
+            "role": auth.user.role.as_str(),
+            "csrf": auth.csrf,
+        })),
+        Err(_) => Json(serde_json::json!({ "user": null })),
+    }
 }
 
 /// Who am I (also the way for the UI to get a fresh CSRF token after a reload).

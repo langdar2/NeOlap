@@ -558,3 +558,85 @@ fn half_given_or_weak_admin_settings_stop_the_server_with_a_clear_message() {
         "{err}"
     );
 }
+
+/// Docker stops the server with SIGTERM and kills it after a grace period. An open live-update
+/// stream (SSE) never ends by itself, so the server has to end it; otherwise a single open browser
+/// tab keeps the server from stopping, and a running import would be cut off by the kill.
+#[cfg(unix)]
+#[test]
+fn an_open_live_stream_does_not_keep_the_server_from_stopping() {
+    use std::io::{Read, Write};
+    let dir = tempfile::tempdir().unwrap();
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut child = neolap()
+        .args([
+            "serve",
+            "--listen",
+            &format!("127.0.0.1:{port}"),
+            "--data-dir",
+        ])
+        .arg(dir.path())
+        .env("NEOLAP_ADMIN_USER", "dirk")
+        .env("NEOLAP_ADMIN_PASSWORD", "a very long secret")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let connect = || {
+        for _ in 0..50 {
+            if let Ok(s) = std::net::TcpStream::connect(("127.0.0.1", port)) {
+                return s;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        panic!("the server did not start");
+    };
+    // log in over a raw socket, then open the event stream with the token
+    let mut login = connect();
+    let body = r#"{"user":"dirk","password":"a very long secret"}"#;
+    write!(login, "POST /api/v1/login HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+    let mut resp = String::new();
+    login.read_to_string(&mut resp).unwrap();
+    let cookie = resp
+        .lines()
+        .find_map(|l| l.strip_prefix("set-cookie: "))
+        .expect("a session cookie")
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let mut stream = connect();
+    write!(stream, "GET /api/v1/events HTTP/1.1\r\nHost: x\r\nCookie: {cookie}\r\nAccept: text/event-stream\r\n\r\n").unwrap();
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .unwrap();
+    let mut head = [0u8; 256];
+    let n = stream.read(&mut head).unwrap();
+    assert!(
+        String::from_utf8_lossy(&head[..n]).contains("text/event-stream"),
+        "the stream is open"
+    );
+    // SIGTERM while the stream is still open
+    let status = std::process::Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let started = std::time::Instant::now();
+    let exit = loop {
+        if let Some(s) = child.try_wait().unwrap() {
+            break s;
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "the server is still running 5 s after SIGTERM with one open event stream"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    assert!(exit.success(), "a clean exit, not a crash: {exit:?}");
+    drop(stream);
+}

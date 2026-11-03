@@ -1,6 +1,8 @@
 # NeOlap – Implementierungsplan
 
-Version 5 · Stand 03.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
+Version 6 · Stand 03.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
+
+Änderungen gegenüber Version 5: Web-Oberfläche umgesetzt (Kap. 7); Zahleneingabe nach deutscher Lesart, ein Punkt vor genau drei Ziffern ist ein Tausendertrenner (E61); strikte CSP und DOM ohne Markup aus Daten (E63, E64); der Server beendet beim Herunterfahren die Event-Streams (E69).
 
 Änderungen gegenüber Version 4: Mehrbenutzer-Server umgesetzt (Kap. 6); Lesen gilt je Cube, Schreiben je Zelle (E51) – Leserechte auf Elementebene bleiben Phase 2; erster Administrator über Umgebungsvariablen (E55); Import in zwei Schritten (E56).
 

@@ -1,0 +1,58 @@
+# cell input contract between the web UI (ui/pivot-state.js `looksLikeInput`) and the server
+# (core `Input::parse`). Columns: input <TAB> server verdict (ok|err).
+# Rust (crates/neolap-core/src/cube/write_tests.rs) checks the verdict against the real parser,
+# Node (ui/tests/input-contract.test.js) checks that the UI never rejects an `ok` line.
+# "ok" lines the UI must accept; for "err" lines the UI may accept or reject (the server decides).
+500	ok
+-50	ok
++50	ok
++5%	ok
+-3,5%	ok
+5%	ok
+#500	ok
+#1.000,5	ok
+#1,000.5	ok
+=-50	ok
+=500	ok
+0,5	ok
+.5	ok
+1234	ok
+1234,5	ok
+2.000	ok
+1.234	ok
+1.5	ok
+0.25	ok
+12.3456	ok
+.500	ok
+1.234,5	ok
+1,234.5	ok
+1.234.567	ok
+1,234,567.89	ok
+-1.234,56	ok
++0	ok
+0	ok
+@Actual:500	ok
+@Actual,2026:500	ok
+@years:Q2,Sales:90	ok
+@Actual:-5,5	ok
+	ok
+abc	err
+5x	err
+--5	err
+#	err
+@Actual	err
+@	err
+@Actual:abc	err
+5%%	err
+#5%	err
+=5%	err
+1..	err
+1,,5	err
+1.5,5	err
+1.,5	err
+1.23.456	err
+,	err
+.	err
+%	err
++%	err
+#-	err

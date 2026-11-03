@@ -27,6 +27,21 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --exclude neolap-py
 
+  # The web UI has no build step and no dependencies; its logic is tested with Node's own runner.
+  # These tests also hold the contract with the server (ui/tests/input-contract.tsv) and the rule
+  # that no UI code writes markup from data.
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # an explicit file list: how a directory argument is read differs between Node versions
+      - run: node --test ui/tests/*.test.js
+      - name: Every module parses
+        run: for f in ui/*.js; do node --check "$f"; done
+
   python:
     runs-on: ubuntu-latest
     steps:

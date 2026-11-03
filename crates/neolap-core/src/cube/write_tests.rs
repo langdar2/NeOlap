@@ -39,6 +39,129 @@ fn input_syntax() {
 }
 
 #[test]
+fn numbers_with_separators_are_read_strictly() {
+    let ok = |t: &str| match Input::parse(t).unwrap() {
+        Input::Set(v) => v,
+        other => panic!("{t}: {other:?}"),
+    };
+    // either convention, grouping and decimal part checked
+    for (t, v) in [
+        ("1234", 1234.0),
+        ("1234.5", 1234.5),
+        ("1234,5", 1234.5),
+        ("1.234,5", 1234.5),
+        ("1,234.5", 1234.5),
+        ("1.234.567", 1_234_567.0),
+        ("1,234,567", 1_234_567.0),
+        ("1.234.567,89", 1_234_567.89),
+        ("1,234,567.89", 1_234_567.89),
+        ("0,5", 0.5),
+        (".5", 0.5),
+        ("1,23", 1.23),
+        ("12.345", 12345.0),
+        ("1 234,5", 1234.5),
+        ("1'234.5", 1234.5),
+        ("=-1.234,5", -1234.5),
+    ] {
+        assert_eq!(ok(t), v, "{t}");
+    }
+    // a leading sign is a difference (E17), read with the same strict number rules
+    assert_eq!(Input::parse("-1.234,5").unwrap(), Input::Delta(-1234.5));
+    assert_eq!(Input::parse("+1,234.5").unwrap(), Input::Delta(1234.5));
+    assert_eq!(Input::parse("-3,5%").unwrap(), Input::Percent(-3.5));
+    // German reading: a lone point followed by exactly three digits groups thousands ("2.000" is
+    // two thousand, what a German spreadsheet means); the comma is always the decimal sign
+    assert_eq!(ok("2.000"), 2000.0);
+    assert_eq!(ok("1.234"), 1234.0);
+    assert_eq!(ok("1,234"), 1.234);
+    assert_eq!(ok("1,2345"), 1.2345);
+    // a point with any other number of digits is a decimal point ("1.5", "0.25", "12.3456")
+    assert_eq!(ok("1.5"), 1.5);
+    assert_eq!(ok("0.25"), 0.25);
+    assert_eq!(ok("12.3456"), 12.3456);
+    assert_eq!(ok("1.50"), 1.5);
+    assert_eq!(
+        ok(".500"),
+        0.5,
+        "nothing before the point: nobody writes .500 for five hundred"
+    );
+    assert_eq!(
+        ok("0.500"),
+        0.5,
+        "a leading zero cannot start a thousands group"
+    );
+    assert_eq!(
+        ok("1234.567"),
+        1234.567,
+        "four digits before the point: not a thousands group either"
+    );
+    assert_eq!(ok("12.345"), 12345.0);
+    assert_eq!(
+        ok("1.000"),
+        1000.0,
+        "the price of the German reading: one point zero zero zero is one thousand"
+    );
+    // with both signs the last one is the decimal sign, so both conventions still work there
+    assert_eq!(ok("1,234.5"), 1234.5);
+    assert_eq!(ok("1.234,5"), 1234.5);
+    // ambiguous or malformed input is refused instead of being turned into some other number
+    for bad in [
+        "1.5,5",
+        "1.,5",
+        "1,,5",
+        "1..5",
+        "1.5.5",
+        "1,5,5",
+        "12,34,56",
+        "1.23.456",
+        "1,2345,678",
+        ",5,",
+        "1.",
+        "1,",
+        ".",
+        ",",
+        "1.234,567,8",
+        "1,234.567.8",
+        "--5",
+    ] {
+        assert!(Input::parse(bad).is_err(), "{bad} must be refused");
+    }
+}
+
+/// The contract with the web UI: `ui/tests/input-contract.tsv` lists inputs with the verdict of this
+/// parser. The UI's coarse pre-check is tested against the same file and must never reject an `ok`
+/// line, so a change here that makes the UI stricter than the server cannot go unnoticed.
+#[test]
+fn input_contract_with_the_web_ui_holds() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../ui/tests/input-contract.tsv"
+    );
+    let text = std::fs::read_to_string(path).expect("the contract file");
+    let mut checked = 0;
+    for line in text.lines().filter(|l| !l.starts_with('#')) {
+        let (input, verdict) = line.split_once('\t').expect("input TAB verdict");
+        let parsed = Input::parse(input);
+        match verdict {
+            "ok" => assert!(
+                parsed.is_ok(),
+                "the contract says {input:?} is accepted, the parser says {parsed:?}"
+            ),
+            "err" => assert!(
+                parsed.is_err(),
+                "the contract says {input:?} is refused, the parser says {parsed:?}"
+            ),
+            other => panic!("unknown verdict {other:?}"),
+        }
+        checked += 1;
+    }
+    assert!(
+        checked > 40,
+        "the contract file looks truncated ({checked} lines)"
+    );
+}
+
+#[test]
 fn proportional_keeps_structure_and_hits_target() {
     let mut c = tiny();
     // Q1 Sales: Jan 100, Feb 50 → 300

@@ -43,9 +43,11 @@ pub mod testing {
     }
 }
 
-/// Web UI files from `<repo>/ui`, embedded at compile time.
+/// Web UI files from `<repo>/ui`, embedded at compile time. The tests of the UI (`ui/tests/`) stay
+/// out of the binary: they are not part of the application and must not be served.
 #[derive(RustEmbed)]
 #[folder = "../../ui/"]
+#[exclude = "tests/*"]
 struct UiAssets;
 
 #[derive(Serialize)]
@@ -95,6 +97,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/login", post(auth::login))
         .route("/logout", post(auth::logout))
         .route("/me", get(auth::me))
+        .route("/session", get(auth::session))
         .route("/model", get(api::model))
         .route("/dimensions/{d}/members", get(api::members))
         .route("/dimensions/{d}", patch(api::patch_dimension))
@@ -209,8 +212,14 @@ pub async fn serve(config: ServerConfig) -> std::io::Result<()> {
         );
     }
     let app = router(state.clone()).into_make_service_with_connect_info::<SocketAddr>();
+    let closing = state.clone();
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(async move {
+            shutdown_signal().await;
+            // SSE streams never end by themselves; without this the server would wait for them
+            // until `docker stop` kills it, and a running import would be cut off
+            closing.begin_shutdown();
+        })
         .await?;
     // wait for running jobs: an import is one transaction, so it either completes or never happened
     let mut waited = 0;

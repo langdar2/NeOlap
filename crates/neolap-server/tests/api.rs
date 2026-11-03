@@ -1825,3 +1825,244 @@ async fn without_proxy_trust_the_forwarded_header_is_ignored() {
         "all attempts count for the one real peer"
     );
 }
+
+// ------------------------------------------------------------ /session (used by the web UI at start)
+
+#[tokio::test]
+async fn session_answers_200_for_everybody_and_reveals_nothing_to_strangers() {
+    let env = setup();
+    // nobody logged in, a forged cookie and a forged token all get the same plain answer
+    let forged_cookie = Client {
+        cookie: Some("neolap_session=deadbeef".into()),
+        csrf: None,
+        bearer: None,
+    };
+    for c in [
+        Client::anonymous(),
+        forged_cookie,
+        Client::token("nlp_x_y"),
+        Client::token("garbage"),
+    ] {
+        let (s, v) = send(&env.app, &c, "GET", "/session", None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(
+            v,
+            json!({ "user": null }),
+            "a stranger learns nothing, not even why"
+        );
+    }
+    // a real session gets its user, role and a CSRF token
+    let pia = user(&env, "pia").await;
+    let (s, v) = send(&env.app, &pia, "GET", "/session", None).await;
+    assert_eq!(
+        (s, v["user"].as_str(), v["role"].as_str()),
+        (StatusCode::OK, Some("pia"), Some("planner"))
+    );
+    assert_eq!(
+        v["csrf"],
+        json!(pia.csrf.clone().unwrap()),
+        "the token is the session's own, so a reloaded page can keep writing"
+    );
+    // after logout the same cookie is a stranger again
+    send(&env.app, &pia, "POST", "/logout", Some(json!({}))).await;
+    assert_eq!(
+        send(&env.app, &pia, "GET", "/session", None).await.1,
+        json!({ "user": null })
+    );
+    // a bearer token has no CSRF token
+    let token = env
+        .state
+        .db
+        .write()
+        .create_token("pia", "t", "setup")
+        .unwrap();
+    let (_, v) = send(&env.app, &Client::token(&token), "GET", "/session", None).await;
+    assert_eq!(
+        (v["user"].as_str(), v["csrf"].is_null()),
+        (Some("pia"), true)
+    );
+    // /me keeps answering 401, which scripts and CI rely on
+    assert_eq!(
+        send(&env.app, &Client::anonymous(), "GET", "/me", None)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn a_cell_answer_says_how_many_base_cells_an_input_reaches() {
+    let env = setup();
+    let root = user(&env, "root").await;
+    let (_, v) = send(
+        &env.app,
+        &root,
+        "GET",
+        "/cubes/sales/cell?years=Jan&regions=Nord&measures=Sales",
+        None,
+    )
+    .await;
+    assert_eq!(
+        v["area"],
+        json!({ "base_cells": "1", "filled_cells": 0 }),
+        "a base cell is itself"
+    );
+    send(
+        &env.app,
+        &root,
+        "POST",
+        "/cubes/sales/write",
+        Some(json!({"cell":["Jan","Nord","Sales"],"value":"5"})),
+    )
+    .await;
+    let (_, v) = send(
+        &env.app,
+        &root,
+        "GET",
+        "/cubes/sales/cell?years=Q1&regions=Total&measures=Sales",
+        None,
+    )
+    .await;
+    // Q1 = Jan, Feb; Total = Nord, Sued; Sales: 2 × 2 × 1 base cells, one of them filled
+    assert_eq!(v["area"], json!({ "base_cells": "4", "filled_cells": 1 }));
+    // the count is a string: it can exceed what JSON numbers hold exactly
+    assert!(v["area"]["base_cells"].is_string());
+    // a weighted aggregate cannot be written to, so there is no area to report
+    let (_, v) = send(
+        &env.app,
+        &root,
+        "GET",
+        "/cubes/sales/cell?years=Jan&regions=Nord&measures=Profit",
+        None,
+    )
+    .await;
+    assert_eq!(v["area"], Value::Null);
+}
+
+// ------------------------------------------------------------ what the binary serves as the web UI
+
+async fn get_status(env: &Env, path: &str) -> (StatusCode, String) {
+    let res = env
+        .app
+        .clone()
+        .oneshot(Request::get(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = res.status();
+    let ct = res
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    (status, ct)
+}
+
+#[tokio::test]
+async fn the_binary_serves_the_ui_modules_with_the_right_type_and_not_the_ui_tests() {
+    let env = setup();
+    // every module the page loads must be served, as JavaScript (a module with another type is refused by the browser)
+    let index = {
+        let res = env
+            .app
+            .clone()
+            .oneshot(Request::get("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap()
+    };
+    assert!(index.contains("app.js") && index.contains("style.css"));
+    for module in [
+        "app.js",
+        "api.js",
+        "dom.js",
+        "grid.js",
+        "grid-model.js",
+        "pivot-state.js",
+        "toast.js",
+        "page-pivot.js",
+        "page-dimensions.js",
+        "page-rules.js",
+        "page-import.js",
+        "page-journal.js",
+        "page-admin.js",
+    ] {
+        let (status, ct) = get_status(&env, &format!("/{module}")).await;
+        assert_eq!(status, StatusCode::OK, "{module} must be served");
+        assert!(
+            ct.starts_with("text/javascript") || ct.starts_with("application/javascript"),
+            "{module} is served as {ct:?}"
+        );
+    }
+    assert_eq!(get_status(&env, "/style.css").await.1, "text/css");
+    // the tests of the UI are not part of the application
+    for test_file in [
+        "tests/input-contract.tsv",
+        "tests/dom-safety.test.js",
+        "tests/grid-model.test.js",
+        "tests/pivot-state.test.js",
+    ] {
+        assert_eq!(
+            get_status(&env, &format!("/{test_file}")).await.0,
+            StatusCode::NOT_FOUND,
+            "{test_file} must not be served"
+        );
+    }
+    // nor can a path walk out of the UI folder
+    for sneaky in [
+        "/../Cargo.toml",
+        "/..%2FCargo.toml",
+        "/%2e%2e/Cargo.toml",
+        "/tests/../app.js/../../Cargo.toml",
+    ] {
+        let (status, _) = get_status(&env, sneaky).await;
+        assert_ne!(
+            status,
+            StatusCode::OK,
+            "{sneaky} must not reach files outside the UI"
+        );
+    }
+}
+
+#[tokio::test]
+async fn every_response_carries_the_strict_security_headers() {
+    let env = setup();
+    for path in [
+        "/",
+        "/app.js",
+        "/api/v1/health",
+        "/api/v1/model",
+        "/nothing-here",
+    ] {
+        let res = env
+            .app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let csp = res
+            .headers()
+            .get("content-security-policy")
+            .unwrap_or_else(|| panic!("{path}: no CSP"))
+            .to_str()
+            .unwrap()
+            .to_string();
+        for must in [
+            "default-src 'self'",
+            "script-src 'self'",
+            "style-src 'self'",
+            "base-uri 'none'",
+            "object-src 'none'",
+            "frame-ancestors 'none'",
+            "form-action 'self'",
+        ] {
+            assert!(csp.contains(must), "{path}: CSP lacks {must:?}: {csp}");
+        }
+        assert!(
+            !csp.contains("unsafe-inline") && !csp.contains("unsafe-eval"),
+            "{path}: {csp}"
+        );
+        assert_eq!(res.headers()["x-content-type-options"], "nosniff", "{path}");
+        assert_eq!(res.headers()["x-frame-options"], "DENY", "{path}");
+    }
+}
