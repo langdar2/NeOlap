@@ -66,6 +66,20 @@ pub(crate) struct Raw {
     pub free: Vec<MemberId>,
 }
 
+/// Serializable form of a dimension (persistence).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DimensionData {
+    pub name: String,
+    pub kind: DimensionKind,
+    /// Index = `MemberId`; `null` marks a free slot.
+    pub names: Vec<Option<String>>,
+    pub aliases: Vec<Vec<String>>,
+    pub children: Vec<Vec<(MemberId, f32)>>,
+    pub attributes: BTreeMap<String, Vec<(MemberId, AttrValue)>>,
+    pub subsets: Vec<Subset>,
+    pub free: Vec<MemberId>,
+}
+
 /// An immutable dimension snapshot.
 pub struct Dimension {
     name: String,
@@ -93,6 +107,78 @@ impl Dimension {
         DimensionEditor::new(name.into(), kind, Raw::default())
             .commit()
             .expect("an empty dimension is always valid")
+    }
+
+    /// The persistent form of this dimension.
+    pub fn to_data(&self) -> DimensionData {
+        let mut attributes = BTreeMap::new();
+        for (name, values) in &self.raw.attributes {
+            let mut v: Vec<(MemberId, AttrValue)> =
+                values.iter().map(|(k, a)| (*k, a.clone())).collect();
+            v.sort_by_key(|e| e.0);
+            attributes.insert(name.clone(), v);
+        }
+        DimensionData {
+            name: self.name.clone(),
+            kind: self.kind,
+            names: self.raw.names.clone(),
+            aliases: self.raw.aliases.clone(),
+            children: self.raw.children.clone(),
+            attributes,
+            subsets: self.raw.subsets.clone(),
+            free: self.raw.free.clone(),
+        }
+    }
+
+    /// Rebuilds a dimension from its persistent form; validates it like `commit()`.
+    pub fn from_data(d: DimensionData) -> crate::Result<Dimension> {
+        let n = d.names.len();
+        let bad = |what: &str| {
+            crate::Error::Storage(format!("dimension '{}' is corrupt: {what}", d.name))
+        };
+        if d.aliases.len() != n || d.children.len() != n {
+            return Err(bad("table sizes differ"));
+        }
+        let in_range = |id: MemberId| (id as usize) < n && d.names[id as usize].is_some();
+        let mut lookup = HashMap::new();
+        for (id, name) in d.names.iter().enumerate() {
+            let Some(name) = name else { continue };
+            for text in std::iter::once(name).chain(&d.aliases[id]) {
+                if lookup
+                    .insert(text.to_lowercase(), id as MemberId)
+                    .is_some_and(|o| o != id as MemberId)
+                {
+                    return Err(bad(&format!("name '{text}' is not unique")));
+                }
+            }
+            if d.children[id].iter().any(|c| !in_range(c.0)) {
+                return Err(bad("edge to an unknown member"));
+            }
+        }
+        let mut attributes: BTreeMap<String, HashMap<MemberId, AttrValue>> = BTreeMap::new();
+        for (name, values) in d.attributes {
+            if values.iter().any(|v| !in_range(v.0)) {
+                return Err(bad("attribute of an unknown member"));
+            }
+            attributes.insert(name, values.into_iter().collect());
+        }
+        if d.subsets
+            .iter()
+            .any(|s| s.members.iter().any(|&m| !in_range(m)))
+            || d.free.iter().any(|&f| (f as usize) >= n)
+        {
+            return Err(bad("reference to an unknown member"));
+        }
+        let raw = Raw {
+            names: d.names,
+            aliases: d.aliases,
+            children: d.children,
+            lookup,
+            attributes,
+            subsets: d.subsets,
+            free: d.free,
+        };
+        Dimension::build(d.name, d.kind, raw)
     }
 
     /// Starts editing a copy of this dimension.

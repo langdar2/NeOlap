@@ -32,7 +32,7 @@ Standardmäßig ist der Server nur vom eigenen Rechner erreichbar (`127.0.0.1`).
 
 ## Bauen und starten ohne Docker
 
-Voraussetzung: Rust ≥ 1.85 ([rustup.rs](https://rustup.rs)).
+Voraussetzung: Rust ≥ 1.89 ([rustup.rs](https://rustup.rs)).
 
 ```sh
 cargo test                       # Tests

@@ -2,6 +2,18 @@
 
 Kurzprotokoll der wesentlichen Entscheidungen. Neue Einträge oben anfügen.
 
+## 2026-11-03 – Persistenz und Journal (M5)
+
+| # | Entscheidung | Begründung |
+|---|---|---|
+| E27 | Zellen werden unter `MemberId`-Schlüsseln gespeichert (4 Byte je Dimension), nicht unter DFS-Ordinalen; der Cube rechnet seine Spalten nach jeder Dimensionsänderung neu (`replace_dimension`) | Ordinale ändern sich bei jedem Commit einer Dimension; MemberIds bleiben stabil, solange ein freigewordener Platz erst nach dem Commit wiederverwendet wird (Editor) |
+| E28 | Schreiben ist Write-through: Der Cube übergibt die Operation zuerst an einen `OpSink`, der sie in einer SQLite-Transaktion (Fakten + Journal) speichert; erst danach ändert sich der Speicher. Lehnt der Sink ab, ändert sich nichts | Einzige Möglichkeit, dass „Abbruch mitten im Import eine konsistente Datei hinterlässt" (Abnahme M5) und Datei und Speicher nie auseinanderlaufen |
+| E29 | Kein Binär-Snapshot beim Start | Plan 4.5 macht ihn von der Messung abhängig: 10 Mio. Zellen laden in 2,2 s (Ziel < 20 s) |
+| E30 | Exklusiver Zugriff über eine Sperrdatei (`<datei>.lock`, `File::try_lock`); Rust-Mindestversion 1.89 | Plan 4.5/E4: lokaler Modus exklusiv. `try_lock` gibt es seit Rust 1.89; das Docker-Image baut ohnehin mit 1.99 |
+| E31 | Vor einer Schemamigration wird die Datei per `VACUUM INTO` nach `<datei>.before-v<N>` kopiert | Plan 6.4: „vorher automatisches Backup". Es gibt bisher nur Schema-Version 1; der Ablauf ist angelegt, aber noch nicht durch eine echte Migration geprüft |
+| E32 | Eine Dimensionsänderung verwirft Fakten entfernter Elemente und von Elementen, die zu Aggregaten wurden, und protokolliert die Zahl im Journal. Die Rückfrage und die Option „auf neues Kind `<Name> (Rest)` verschieben" (Plan 4.1) gehören in die Oberfläche | Die Engine kann nur ausführen; die Entscheidung trifft der Nutzer in M8/M9 |
+| E33 | Der Aggregat-Cache wird weiterhin vollständig geleert; der Schreibpfad ist jetzt aber nicht mehr der Engpass (Splash mit 100.000 Zellen inkl. Journal: 0,22 s) | gemessen |
+
 ## 2026-11-03 – Regeln (M4)
 
 | # | Entscheidung | Begründung |

@@ -12,6 +12,7 @@ use serde::Serialize;
 
 pub mod cube;
 pub mod dimension;
+pub mod persist;
 pub mod rules;
 
 pub use cube::{
@@ -53,6 +54,12 @@ pub enum Error {
     /// The user may not write a cell of the affected area.
     #[error("access denied: {0}")]
     Denied(String),
+    /// The database file could not be read or written.
+    #[error("storage error: {0}")]
+    Storage(String),
+    /// Another process has the database open exclusively.
+    #[error("database '{0}' is in use by another process")]
+    Locked(String),
     /// Input (CSV, specification, …) could not be parsed.
     #[error("parse error: {0}")]
     Parse(String),
@@ -60,6 +67,18 @@ pub enum Error {
 
 fn fmt_value(v: Option<f64>) -> String {
     v.map_or_else(|| "empty".to_string(), |v| v.to_string())
+}
+
+impl From<rusqlite::Error> for Error {
+    fn from(e: rusqlite::Error) -> Self {
+        Error::Storage(e.to_string())
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::Storage(e.to_string())
+    }
 }
 
 /// Convenience result type.

@@ -8,6 +8,9 @@ pub struct DimensionEditor {
     name: String,
     kind: DimensionKind,
     raw: Raw,
+    /// Slots freed in this session; reusable only after `commit()`, so that a member id always
+    /// names the same member between two committed states (facts are keyed by it).
+    removed: Vec<MemberId>,
 }
 
 fn key(name: &str) -> String {
@@ -16,7 +19,12 @@ fn key(name: &str) -> String {
 
 impl DimensionEditor {
     pub(crate) fn new(name: String, kind: DimensionKind, raw: Raw) -> Self {
-        DimensionEditor { name, kind, raw }
+        DimensionEditor {
+            name,
+            kind,
+            raw,
+            removed: Vec::new(),
+        }
     }
 
     fn check_name(name: &str) -> Result<()> {
@@ -79,6 +87,11 @@ impl DimensionEditor {
 
     /// Makes `child` a child of `parent` with the given weight (updates the weight if the edge exists).
     pub fn add_edge(&mut self, parent: MemberId, child: MemberId, weight: f32) -> Result<()> {
+        if !weight.is_finite() {
+            return Err(Error::InvalidOperation(
+                "edge weight must be a finite number".into(),
+            ));
+        }
         let p = self.slot(parent)?;
         self.slot(child)?;
         if parent == child {
@@ -148,7 +161,7 @@ impl DimensionEditor {
         for s in &mut self.raw.subsets {
             s.members.retain(|&m| m != id);
         }
-        self.raw.free.push(id);
+        self.removed.push(id);
         Ok(())
     }
 
@@ -163,10 +176,10 @@ impl DimensionEditor {
         self.slot(id)?;
         let mut weight = 1.0;
         for (p, kids) in self.raw.children.iter_mut().enumerate() {
-            if from.is_none_or(|f| f as usize == p) {
-                if let Some(pos) = kids.iter().position(|e| e.0 == id) {
-                    weight = kids.remove(pos).1;
-                }
+            if from.is_none_or(|f| f as usize == p)
+                && let Some(pos) = kids.iter().position(|e| e.0 == id)
+            {
+                weight = kids.remove(pos).1;
             }
         }
         if let Some(t) = to {
@@ -177,6 +190,11 @@ impl DimensionEditor {
 
     /// Sets the weight of an existing edge.
     pub fn set_weight(&mut self, parent: MemberId, child: MemberId, weight: f32) -> Result<()> {
+        if !weight.is_finite() {
+            return Err(Error::InvalidOperation(
+                "edge weight must be a finite number".into(),
+            ));
+        }
         let p = self.slot(parent)?;
         match self.raw.children[p].iter_mut().find(|e| e.0 == child) {
             Some(e) => {
@@ -248,7 +266,8 @@ impl DimensionEditor {
     }
 
     /// Validates (cycles, contradicting path weights) and builds the new dimension.
-    pub fn commit(self) -> Result<Dimension> {
+    pub fn commit(mut self) -> Result<Dimension> {
+        self.raw.free.extend(self.removed);
         Dimension::build(self.name, self.kind, self.raw)
     }
 }

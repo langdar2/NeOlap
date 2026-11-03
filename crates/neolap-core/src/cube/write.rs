@@ -82,6 +82,31 @@ struct Change {
     new: Option<f64>,
 }
 
+/// One changed cell of an operation, addressed by member ids.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CellChange {
+    pub addr: Vec<MemberId>,
+    pub old: Option<f64>,
+    pub new: Option<f64>,
+}
+
+/// An operation as handed to the [`OpSink`] before it is applied.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpRecord {
+    pub id: u64,
+    pub generation: u64,
+    pub user: String,
+    /// `set`, `splash` or `undo`
+    pub kind: &'static str,
+    pub changes: Vec<CellChange>,
+}
+
+/// Persists operations. `record` is called before the operation is applied to memory; if it fails,
+/// the operation is rejected and nothing changes (one operation = one transaction).
+pub trait OpSink: Send + Sync {
+    fn record(&mut self, cube: &str, op: &OpRecord) -> Result<()>;
+}
+
 pub(super) struct Op {
     id: u64,
     generation: u64,
@@ -114,6 +139,14 @@ pub(super) struct History {
 }
 
 impl History {
+    /// An empty log that rejects views older than `generation`.
+    pub(super) fn floor_at(generation: u64) -> History {
+        History {
+            floor: generation,
+            ..History::default()
+        }
+    }
+
     /// User of the newest operation after position `pos` that touched `coords`.
     fn last_toucher(&self, pos: usize, coords: &[u32], n_dims: usize) -> Option<&str> {
         self.ops
@@ -319,7 +352,7 @@ impl Cube {
         let old = self.store.get(&coords);
         let new = value.filter(|v| *v != 0.0);
         if old != new {
-            self.commit("system", true, vec![Change { coords, old, new }]);
+            self.commit("system", "set", true, vec![Change { coords, old, new }])?;
         }
         Ok(old)
     }
@@ -412,14 +445,13 @@ impl Cube {
 
     /// `dimension:member` or a plain member name that exists in exactly one dimension.
     fn resolve_reference(&self, name: &str) -> Result<(usize, MemberId)> {
-        if let Some((dim, member)) = name.split_once(':') {
-            if let Some(d) = self
+        if let Some((dim, member)) = name.split_once(':')
+            && let Some(d) = self
                 .dims
                 .iter()
                 .position(|d| d.name().eq_ignore_ascii_case(dim.trim()))
-            {
-                return Ok((d, self.dims[d].member(member.trim())?));
-            }
+        {
+            return Ok((d, self.dims[d].member(member.trim())?));
         }
         let mut found = self
             .dims
@@ -541,7 +573,7 @@ impl Cube {
         };
         let changes = settle(ctx.decimals, target, news, existing);
         self.check_permission(ctx, &changes)?;
-        Ok(self.commit(&ctx.user, true, changes))
+        self.commit(&ctx.user, "splash", true, changes)
     }
 
     /// Reverts the user's latest operation. Rejected if someone changed an affected cell since.
@@ -583,7 +615,7 @@ impl Cube {
             });
         }
         self.check_permission(ctx, &changes)?;
-        let result = self.commit(&ctx.user, false, changes);
+        let result = self.commit(&ctx.user, "undo", false, changes)?;
         if let Some(stack) = self.history.undo.get_mut(&ctx.user) {
             stack.pop();
         }
@@ -591,18 +623,45 @@ impl Cube {
     }
 
     /// Applies the changes (all real changes) as one operation.
-    fn commit(&mut self, user: &str, record_undo: bool, changes: Vec<Change>) -> WriteResult {
+    fn commit(
+        &mut self,
+        user: &str,
+        kind: &'static str,
+        record_undo: bool,
+        changes: Vec<Change>,
+    ) -> Result<WriteResult> {
         if changes.is_empty() {
-            return WriteResult {
+            return Ok(WriteResult {
                 op_id: None,
                 generation: self.generation,
                 cells_changed: 0,
-            };
+            });
         }
         let n = self.dims.len();
-        self.generation += 1;
-        self.cache.lock().clear();
         let id = self.history.next_id;
+        let generation = self.generation + 1;
+        if self.sink.is_some() {
+            let record = OpRecord {
+                id,
+                generation,
+                user: user.to_string(),
+                kind,
+                changes: changes
+                    .iter()
+                    .map(|c| CellChange {
+                        addr: self.coords_to_members(&c.coords),
+                        old: c.old,
+                        new: c.new,
+                    })
+                    .collect(),
+            };
+            let name = self.name.clone();
+            if let Some(sink) = self.sink.as_mut() {
+                sink.record(&name, &record)?;
+            }
+        }
+        self.generation = generation;
+        self.cache.lock().clear();
         self.history.next_id += 1;
         let mut op = Op {
             id,
@@ -641,10 +700,10 @@ impl Cube {
                 stack.remove(0);
             }
         }
-        WriteResult {
+        Ok(WriteResult {
             op_id: Some(id),
             generation: self.generation,
             cells_changed,
-        }
+        })
     }
 }

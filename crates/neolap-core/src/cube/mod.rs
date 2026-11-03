@@ -22,7 +22,10 @@ use crate::{Error, MemberId, Result};
 pub use calc::{CellError, CellValue, CubeProvider};
 pub use input::Input;
 pub use store::{FactStore, MemoryStats};
-pub use write::{AreaInfo, CellVersion, UNDO_DEPTH, WriteContext, WritePermission, WriteResult};
+pub use write::{
+    AreaInfo, CellChange, CellVersion, OpRecord, OpSink, UNDO_DEPTH, WriteContext, WritePermission,
+    WriteResult,
+};
 
 /// Sets with more base members than this are not summed up for the row estimate.
 const MAX_ESTIMATE_LEAVES: usize = 2048;
@@ -40,6 +43,8 @@ pub struct Cube {
     cache: Mutex<HashMap<Vec<MemberId>, Option<f64>>>,
     history: write::History,
     rules: RuleSet,
+    /// Receives every operation before it is applied (write-through persistence).
+    sink: Option<Box<dyn OpSink>>,
 }
 
 /// Result grid of [`Cube::view`], row-major; `None` = empty cell.
@@ -85,12 +90,91 @@ impl Cube {
             generation: 0,
             history: write::History::default(),
             rules: RuleSet::default(),
+            sink: None,
             cache: Mutex::new(HashMap::new()),
         }
     }
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Sets the generation without any other effect (after loading).
+    pub fn restore_generation(&mut self, generation: u64) {
+        self.generation = generation;
+    }
+
+    /// Installs the sink that persists operations; see [`OpSink`].
+    pub fn set_sink(&mut self, sink: Option<Box<dyn OpSink>>) {
+        self.sink = sink;
+    }
+
+    /// All filled cells keyed by member ids (stable across dimension changes).
+    pub fn export_cells(&self) -> Vec<(Vec<MemberId>, f64)> {
+        self.store
+            .iter()
+            .map(|(coords, v)| (self.coords_to_members(&coords), v))
+            .collect()
+    }
+
+    pub(crate) fn coords_to_members(&self, coords: &[u32]) -> Vec<MemberId> {
+        self.dims
+            .iter()
+            .zip(coords)
+            .map(|(d, &o)| d.leaf_member(o).expect("stored ordinal"))
+            .collect()
+    }
+
+    /// Loads cells (member ids of base members) without recording operations. Replaces the content
+    /// of the cube's fact store; the generation is set to `generation`.
+    pub fn load_cells(
+        &mut self,
+        cells: impl IntoIterator<Item = (Vec<MemberId>, f64)>,
+        generation: u64,
+    ) -> Result<()> {
+        let mut store = FactStore::new(self.dims.len());
+        for (addr, v) in cells {
+            let coords = self.base_coords(&addr)?;
+            store.set(&coords, v);
+        }
+        self.store = store;
+        self.generation = generation;
+        self.cache.lock().clear();
+        Ok(())
+    }
+
+    /// Exchanges the dimension at `index` for its edited successor. Cells of removed members are
+    /// dropped (returned for the journal); cells of members that became aggregates are dropped too.
+    /// Ordinals are recalculated, the operation log is discarded (its coordinates are void).
+    pub fn replace_dimension(
+        &mut self,
+        index: usize,
+        new: Arc<Dimension>,
+    ) -> Result<Vec<(Vec<MemberId>, f64)>> {
+        if index >= self.dims.len() {
+            return Err(Error::InvalidOperation(format!(
+                "cube '{}' has no dimension {index}",
+                self.name
+            )));
+        }
+        let mut kept = Vec::with_capacity(self.store.len());
+        let mut dropped = Vec::new();
+        for (addr, v) in self.export_cells() {
+            let m = addr[index];
+            if new.is_leaf(m) {
+                kept.push((addr, v));
+            } else {
+                dropped.push((addr, v));
+            }
+        }
+        self.dims[index] = new;
+        let generation = self.generation + 1;
+        self.load_cells(kept, generation)?;
+        self.history = write::History::floor_at(generation);
+        // rules refer to member ids and dimension names: resolve them again
+        let text = self.rules.text.clone();
+        self.rules = RuleSet::build(&text, &self.dims).unwrap_or_default();
+        Ok(dropped)
     }
 
     pub fn dimensions(&self) -> &[Arc<Dimension>] {

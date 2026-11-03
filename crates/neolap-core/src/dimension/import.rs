@@ -63,7 +63,8 @@ fn finish(
 }
 
 /// Imports `child;parent;weight[;attribute…]` rows. The header names the columns: `child`,
-/// `parent` (empty = root), `weight` (optional, default 1); all other columns are attributes.
+/// `parent` (empty = root), `weight` (optional, default 1), `alias` (optional, several separated by `|`);
+/// all other columns are attributes.
 pub fn import_parent_child<R: Read>(
     ed: &mut DimensionEditor,
     input: R,
@@ -76,6 +77,7 @@ pub fn import_parent_child<R: Read>(
     let c_child = col("child").ok_or_else(|| Error::Parse("column 'child' missing".into()))?;
     let c_parent = col("parent");
     let c_weight = col("weight");
+    let c_alias = col("alias");
 
     let existing = ed.live_ids();
     let before = ed.len();
@@ -103,8 +105,16 @@ pub fn import_parent_child<R: Read>(
             };
             ed.add_edge(parent, child, weight)?;
         }
+        for alias in c_alias
+            .and_then(|c| rec.get(c))
+            .unwrap_or("")
+            .split('|')
+            .filter(|a| !a.is_empty())
+        {
+            ed.set_alias(child, alias)?;
+        }
         for (i, h) in headers.iter().enumerate() {
-            if Some(i) == Some(c_child) || Some(i) == c_parent || Some(i) == c_weight {
+            if i == c_child || Some(i) == c_parent || Some(i) == c_weight || Some(i) == c_alias {
                 continue;
             }
             if let Some(v) = rec.get(i).filter(|v| !v.is_empty()) {

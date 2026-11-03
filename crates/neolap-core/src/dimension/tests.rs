@@ -115,8 +115,13 @@ fn remove_reuses_slot_and_move_keeps_weight() {
     e.move_member(x, Some(t), Some(u)).unwrap();
     let y = e.add("y").unwrap();
     e.remove(y).unwrap();
+    // a freed slot is not reused within the same session ...
     let z = e.add("z").unwrap();
-    assert_eq!(z, y);
+    assert_ne!(z, y);
+    let d = e.commit().unwrap();
+    // ... but in the next one
+    let mut e = d.edit();
+    assert_eq!(e.add("w").unwrap(), y);
     let d = e.commit().unwrap();
     assert_eq!(d.children(u), &[(x, -1.0)]);
     assert!(d.is_leaf(t));

@@ -16,7 +16,7 @@ default-members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "MIT"
 authors = ["Dirk Lange"]
 repository = "https://github.com/langdar2/NeOlap"
