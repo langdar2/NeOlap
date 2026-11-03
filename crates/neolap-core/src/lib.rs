@@ -10,7 +10,10 @@
 
 use serde::Serialize;
 
+pub mod cube;
 pub mod dimension;
+
+pub use cube::{Cube, FactStore, Grid};
 
 pub use dimension::{
     AttrValue, Dimension, DimensionEditor, DimensionKind, LeafSet, LeafShape, Subset,

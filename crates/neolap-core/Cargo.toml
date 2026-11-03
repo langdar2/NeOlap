@@ -13,6 +13,9 @@ serde.workspace = true
 thiserror.workspace = true
 csv.workspace = true
 parking_lot.workspace = true
+hashbrown = "0.17"
+roaring = "0.12"
+rayon = "1"
 
 [dev-dependencies]
 proptest.workspace = true
