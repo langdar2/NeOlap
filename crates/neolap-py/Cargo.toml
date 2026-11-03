@@ -1,0 +1,18 @@
+[package]
+name = "neolap-py"
+description = "Python bindings for NeOlap."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "neolap"
+crate-type = ["cdylib"]
+
+[dependencies]
+neolap-core.workspace = true
+pyo3.workspace = true

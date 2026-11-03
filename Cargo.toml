@@ -1,0 +1,46 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/neolap-core",
+    "crates/neolap-server",
+    "crates/neolap-cli",
+    "crates/neolap-py",
+]
+# The Python extension is built with maturin, not with plain `cargo test`.
+default-members = [
+    "crates/neolap-core",
+    "crates/neolap-server",
+    "crates/neolap-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Dirk Lange"]
+repository = "https://github.com/langdar2/NeOlap"
+description = "NeOlap – a lightweight, model-first multidimensional (MOLAP) database with write-back, rules and a multi-user web UI."
+
+[workspace.dependencies]
+neolap-core = { path = "crates/neolap-core" }
+neolap-server = { path = "crates/neolap-server" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "signal"] }
+axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7", features = ["trace"] }
+rust-embed = "8.13"
+mime_guess = "2.0"
+clap = { version = "4.6", features = ["derive"] }
+pyo3 = { version = "0.30", features = ["abi3-py39"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

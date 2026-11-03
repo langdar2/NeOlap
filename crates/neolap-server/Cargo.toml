@@ -1,0 +1,23 @@
+[package]
+name = "neolap-server"
+description = "NeOlap multi-user server: REST API, events and embedded web UI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+neolap-core.workspace = true
+axum.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+rust-embed.workspace = true
+mime_guess.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tower.workspace = true

@@ -1,0 +1,15 @@
+/target/
+**/*.rs.bk
+.venv/
+__pycache__/
+*.so
+*.pyd
+*.dylib
+.DS_Store
+.idea/
+.vscode/
+# local databases and backups
+*.neolap
+*.neolap-wal
+*.neolap-shm
+/backup/

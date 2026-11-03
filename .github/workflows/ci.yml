@@ -1,0 +1,57 @@
+name: CI
+
+# Linux on every push. macOS and Windows only for pull requests to main,
+# weekly and on demand – macOS minutes count 10x against the free quota of
+# private repositories.
+on:
+  push:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --exclude neolap-py
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          pip install maturin
+          maturin develop -m crates/neolap-py/Cargo.toml
+          python -c "import neolap; assert neolap.version() == neolap.__version__; print(neolap.version())"
+
+  other-os:
+    if: github.event_name != 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --exclude neolap-py
