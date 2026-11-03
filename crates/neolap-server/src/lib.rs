@@ -3,7 +3,7 @@
 //! Milestone M0 provides the router skeleton, a health endpoint and static
 //! delivery of the web UI that is compiled into the binary.
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::PathBuf};
 
 use axum::{
     Json, Router,
@@ -72,19 +72,53 @@ pub fn router() -> Router {
         .layer(TraceLayer::new_for_http())
 }
 
-/// Runs the server until Ctrl+C is pressed.
-pub async fn serve(addr: SocketAddr) -> std::io::Result<()> {
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+/// Server configuration.
+#[derive(Debug, Clone)]
+pub struct ServerConfig {
+    /// Socket address to listen on.
+    pub listen: SocketAddr,
+    /// Directory for databases, journal and backups (a Docker volume in container setups).
+    pub data_dir: PathBuf,
+}
+
+/// Runs the server until Ctrl+C or SIGTERM (`docker stop`) is received.
+pub async fn serve(config: ServerConfig) -> std::io::Result<()> {
+    let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(
-        "NeOlap {} listening on http://{}",
+        "NeOlap {} listening on http://{} (data directory: {})",
         neolap_core::VERSION,
-        listener.local_addr()?
+        listener.local_addr()?,
+        config.data_dir.display()
     );
     axum::serve(listener, router())
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+    tracing::info!("NeOlap stopped");
+    Ok(())
+}
+
+/// Completes on Ctrl+C or, on Unix, on SIGTERM – the signal Docker sends on `docker stop`.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sigterm) => {
+                sigterm.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    tracing::info!("shutdown requested, finishing open requests");
 }
 
 #[cfg(test)]

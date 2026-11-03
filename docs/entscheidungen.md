@@ -2,6 +2,17 @@
 
 Kurzprotokoll der wesentlichen Entscheidungen. Neue Einträge oben anfügen.
 
+## 2026-11-03 – Betrieb und Größenrahmen
+
+| # | Entscheidung | Begründung |
+|---|---|---|
+| E9 | 20 Mio. gefüllte Basiszellen sind das feste Maximum | Vorgabe des Auftraggebers; erlaubt reines In-Memory-Design ohne Auslagerung, ≈ 3 GB RAM |
+| E10 | Server-Betrieb überall per Docker Compose | Vorgabe des Auftraggebers; identischer Betrieb auf Mac, Linux-Server und Windows |
+| E11 | Laufzeit-Image `distroless/cc-debian13:nonroot` | Klein, ohne Shell/Paketmanager (geringe Angriffsfläche), Nicht-root; Programm braucht nur glibc ≥ 2.34 und libgcc |
+| E12 | Eingebauter Healthcheck `neolap healthcheck` | Distroless-Image hat kein curl/wget |
+| E13 | TLS per optionalem Caddy-Profil statt eingebautem TLS als Standard | Automatische Zertifikate, kein Zertifikatsmanagement in NeOlap nötig; eingebautes TLS bleibt für Betrieb ohne Docker vorgesehen |
+| E14 | Konfiguration im Container über `NEOLAP_*`-Umgebungsvariablen | Docker-üblich, in `.env` pflegbar |
+
 ## 2026-11-03 – Ausgangsentscheidungen
 
 | # | Entscheidung | Begründung |

@@ -1,0 +1,9 @@
+# Reverse proxy with automatic HTTPS in front of NeOlap.
+# Public domain → Let's Encrypt certificate; internal name or localhost → local CA.
+{$NEOLAP_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy neolap:8080 {
+		# Server-Sent Events (live updates) must not be buffered.
+		flush_interval -1
+	}
+}

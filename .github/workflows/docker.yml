@@ -1,0 +1,73 @@
+name: Docker
+
+# Builds the image, starts it with docker compose and checks health and shutdown.
+# On version tags (v*), a multi-arch image (amd64 + arm64) is pushed to
+# ghcr.io/langdar2/neolap. arm64 is built via QEMU emulation and is slow.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  compose-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Validate compose file
+        run: docker compose config --quiet && docker compose --profile tls config --quiet
+      - name: Build and start
+        run: docker compose up -d --build --wait --wait-timeout 120
+      - name: Health and web UI
+        run: |
+          curl -fsS http://127.0.0.1:8080/api/v1/health
+          curl -fsS http://127.0.0.1:8080/ | grep -q NeOlap
+          docker compose ps
+          test "$(docker inspect --format '{{.State.Health.Status}}' neolap-neolap-1)" = healthy
+      - name: Graceful shutdown on SIGTERM
+        run: |
+          docker compose stop -t 30 neolap
+          docker compose logs neolap | tee logs.txt
+          grep -q "NeOlap stopped" logs.txt
+          test "$(docker inspect --format '{{.State.ExitCode}}' neolap-neolap-1)" = 0
+      - name: Image size
+        run: docker image ls neolap:local
+      - if: always()
+        run: docker compose down -v
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: compose-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/langdar2/neolap
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

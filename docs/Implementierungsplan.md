@@ -1,6 +1,8 @@
 # NeOlap – Implementierungsplan
 
-Version 2 · Stand 03.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
+Version 3 · Stand 03.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
+
+Änderungen gegenüber Version 2: 20 Mio. gefüllte Basiszellen als festes Maximum bestätigt; Server-Betrieb überall per Docker Compose (Kap. 6.4), umgesetzt bereits in M0.
 
 Änderungen gegenüber Version 1: Projektname NeOlap; Größenrahmen 20 Dimensionen / 500.000 Elemente / 50 Ebenen; gemeinsame Nutzung ab v1 (Benutzer, Rechte, Konflikterkennung, Änderungsjournal); Speicher- und Indexdesign daraufhin überarbeitet; Excel-Anbindung bleibt Phase 2.
 
@@ -14,6 +16,7 @@ NeOlap ist ein leichtgewichtiges, modellgetriebenes MOLAP-Werkzeug im Geist von 
 | Regeln | Eigene Formelsprache (TM1/Alea-artig), mit dem Modell gespeichert |
 | Rückschreiben | Direkt (Zelleingabe, auf Aggregaten mit Splashing) und per Datenimport |
 | Nutzung | Gemeinsam: ein NeOlap-Server, mehrere Nutzer im Browser, per Python oder CLI |
+| Bereitstellung | Server überall per `docker compose up` (Linux, macOS, Windows; amd64 und arm64) |
 | Excel | Phase 2, erst wenn v1 stabil läuft |
 | Ablage | Privates GitHub-Repository `langdar2/NeOlap` |
 
@@ -24,9 +27,9 @@ NeOlap ist ein leichtgewichtiges, modellgetriebenes MOLAP-Werkzeug im Geist von 
 | Dimensionen pro Cube | bis 20 |
 | Elemente pro Dimension | bis 500.000 (Basis + Aggregate) |
 | Hierarchietiefe | bis 50 Ebenen, ungleich verteilt (unbalancierte Bäume, Mehrfach-Eltern erlaubt) |
-| Gefüllte Basiszellen pro Cube | Annahme: bis 20 Mio. (noch zu bestätigen, siehe Kap. 14) |
+| Gefüllte Basiszellen | bis 20 Mio. (festes Maximum über alle Cubes einer Datenbank) |
 | Gleichzeitige Nutzer | bis ca. 20 aktiv |
-| Speicherbedarf | ca. 100–150 Byte je gefüllter Basiszelle bei 20 Dimensionen → 20 Mio. Zellen ≈ 2–3 GB RAM |
+| Speicherbedarf | ca. 100–150 Byte je gefüllter Basiszelle bei 20 Dimensionen → 20 Mio. Zellen ≈ 2–3 GB RAM; Container-Standardlimit 4 GB |
 | Einzelne Aggregatzelle über 10 Mio. Datensätze | < 100 ms (kalt), < 5 ms (aus Cache) |
 | Pivot-Ansicht 50 × 20 Zellen mit Nullunterdrückung | < 500 ms bei 10 Mio. Datensätzen |
 | Splash auf 100.000 Basiszellen inkl. Speichern | < 2 s |
@@ -63,7 +66,9 @@ NeOlap/
 ├─ samples/            Beispielmodelle + Daten
 ├─ tests/golden/       Referenzergebnisse aus dem Python-Original
 ├─ docs/               Plan, Architekturentscheidungen, Handbuch
-└─ .github/workflows/  CI
+├─ deploy/             Caddyfile (TLS-Proxy)
+├─ Dockerfile, docker-compose.yml, .env.example
+└─ .github/workflows/  CI, Docker-Build/-Test/-Veröffentlichung
 ```
 
 Die gesamte Fachlogik liegt in `neolap-core`; Server, CLI und Python-Modul sind dünne Hüllen. Die Web-UI wird in das Server-Binary eingebettet, sodass NeOlap als eine Datei ausgeliefert wird.
@@ -72,7 +77,7 @@ Betriebsarten:
 
 | Modus | Beschreibung |
 |---|---|
-| Server | `neolap serve modell.neolap` – ein Prozess hält die Datenbank, Nutzer arbeiten per Browser, Python (`neolap.connect(url)`) oder CLI (`--server url`). Standard für gemeinsame Nutzung. |
+| Server | `docker compose up -d` oder `neolap serve` – ein Prozess hält die Datenbank, Nutzer arbeiten per Browser, Python (`neolap.connect(url)`) oder CLI (`--server url`). Standard für gemeinsame Nutzung. |
 | Lokal | CLI oder Python öffnen die Datei direkt, exklusiv (Sperrdatei). Für Einzelarbeit, Tests, Notebooks, Batch-Importe bei gestopptem Server. |
 
 Zentrale Abhängigkeiten (aktuelle Versionen geprüft am 03.11.2026): `roaring` 0.12, `hashbrown` 0.17, `parking_lot` 0.13, `serde`/`serde_json`, `rusqlite` 0.41 (bundled), `thiserror` 2, `csv` 1.4, `calamine` 0.38, `rust_xlsxwriter` 0.102, `axum` 0.8, `tokio` 1.54, `tower-http` 0.7, `rust-embed` 8, `clap` 4.6, `argon2` 0.6, `tracing`, `pyo3` 0.30; Tests: `proptest`, `criterion`, `insta`.
@@ -236,7 +241,7 @@ Dimensionsimport aus Eltern-Kind-Listen (`child;parent;weight`) oder Ebenenspalt
 
 - Benutzer mit Passwort (Argon2-Hash), Sitzung per sicherem Cookie; API-Tokens für Python/CLI/Skripte. Anbindung an Firmen-SSO (OIDC) ist für Phase 2 vorgesehen.
 - Standardmäßig nur `127.0.0.1`; für das Team `--listen 0.0.0.0`. Ab Netzbetrieb ist TLS Pflicht: eingebautes TLS (rustls) mit eigenem Zertifikat oder Betrieb hinter einem Reverse Proxy.
-- Bereitstellung: Binary auf einem Rechner/Server im Netz oder als Docker-Image (Linux); Konfiguration über `neolap.toml`; Logging über `tracing`; Healthcheck-Endpunkt.
+- Bereitstellung: standardmäßig per Docker Compose (Kap. 6.4), alternativ als einzelnes Binary. Konfiguration über Umgebungsvariablen `NEOLAP_*` (Container) bzw. Kommandozeilenoptionen, später ergänzend `neolap.toml`; Logging über `tracing` nach stdout; Healthcheck-Endpunkt `/api/v1/health`.
 
 ### 6.2 Rollen und Rechte
 
@@ -269,6 +274,24 @@ Rechte je Cube: lesen / schreiben / kein Zugriff. Zusätzlich Bereichsrechte üb
 | … | `/api/admin/users`, `/api/admin/grants`, `/api/admin/backup` | Verwaltung |
 
 API-Version im Pfad-Präfix ab dem ersten Release (`/api/v1/...`), damit Python-Clients und spätere Excel-Anbindung stabil bleiben.
+
+### 6.4 Betrieb mit Docker Compose
+
+Ziel: Auf jedem Rechner mit Docker (Linux-Server, Mac mit Docker Desktop/OrbStack/Colima, Windows) startet NeOlap mit `docker compose up -d`.
+
+| Baustein | Umsetzung |
+|---|---|
+| Image | Mehrstufiges `Dockerfile`: Build in `rust:1.99-slim-trixie`, Laufzeit `gcr.io/distroless/cc-debian13:nonroot` (nur glibc/libgcc, keine Shell, läuft als Nicht-root-Benutzer 65532). Erwartete Größe ca. 25–30 MB. |
+| Architekturen | linux/amd64 und linux/arm64 (Apple Silicon, ARM-Server). Lokal baut Docker nativ für die eigene Architektur. |
+| Daten | Benanntes Volume `neolap-data` → `/data` (Datenbanken, Journal, Backups). Überlebt `down`, `up --build` und Updates. |
+| Konfiguration | `.env` (Vorlage `.env.example`): Port, Bind-Adresse, Speicherlimit, Log-Level, optional fertiges Image aus der Registry. |
+| Netz | Standard: Port nur an `127.0.0.1` gebunden. Für Teamzugriff Profil `tls`: Caddy als Reverse Proxy mit automatischem HTTPS (Let's Encrypt bei öffentlichem Namen, sonst lokale CA); SSE ungepuffert. |
+| Gesundheit | `HEALTHCHECK` über `neolap healthcheck` (eingebaut, da das Image weder Shell noch curl hat); Caddy startet erst, wenn NeOlap gesund ist. |
+| Stoppen | `docker stop` sendet SIGTERM; NeOlap beendet offene Anfragen und (ab M5) laufende Transaktionen sauber, `stop_grace_period` 30 s. |
+| Härtung | `read_only`-Dateisystem, `cap_drop: ALL`, `no-new-privileges`, `tmpfs` für `/tmp`, Speicherlimit (Standard 4 GB für 20 Mio. Zellen). |
+| Backup | Ab M5: `docker compose exec neolap neolap backup …` bzw. zeitgesteuertes Backup im Server in `/data/backup`; Sicherung des Volumes per `docker run --rm -v neolap_neolap-data:/data …`. |
+| Verteilung | GitHub Actions baut und testet das Image bei jedem Push auf `main` (Start, Health, sauberer Stopp). Bei Versions-Tags `v*` wird ein Multi-Arch-Image nach `ghcr.io/langdar2/neolap` (privat) veröffentlicht; Nutzung über `NEOLAP_IMAGE` in `.env` nach `docker login ghcr.io`. |
+| Updates | `docker compose pull && docker compose up -d` (Registry) bzw. `git pull && docker compose up -d --build`; Schema-Migrationen laufen beim Start automatisch (ab M5), vorher automatisches Backup. |
 
 ## 7. Web-Oberfläche (ui/)
 
@@ -328,7 +351,7 @@ Grobe Schätzung in Personentagen. Jeder Meilenstein endet mit lauffähigem, get
 
 | # | Meilenstein | Inhalt | Abnahmekriterium | PT |
 |---|---|---|---|---|
-| M0 | Gerüst | Workspace, CI, Lizenz, README, Plan, Health-Endpunkt, Python-Modul-Hülle | `cargo test` grün; `neolap serve` zeigt Startseite; Wheel baut | 1 |
+| M0 | Gerüst | Workspace, CI, Lizenz, README, Plan, Health-Endpunkt, Python-Modul-Hülle, Docker Compose | `cargo test` grün; `neolap serve` zeigt Startseite; Wheel baut; `docker compose up` startet gesund | 1,5 |
 | M1 | Dimensionen | Elemente, Hierarchien, Gewichte, Aliase, Attribute, Subsets, Editor, LeafSets, Suche, Dimensionsimport | Portierte Tests grün; 500.000 Elemente / 50 Ebenen: Import < 5 s, Commit < 1 s | 4 |
 | M2 | Abfrage | FactStore, Basis-Index, Selektivitätsplanung, gewichtete Aggregation, Gruppierungspfad, Cache | Golden-Test „tiny“ = Original; Property-Test Aggregat = Σ Basis × Gewicht; Benchmark 10 Mio. Zellen × 20 Dim. erfüllt Ziele | 6 |
 | M3 | Rückschreiben | Basis-Schreiben, Splash-Modi, Schutzregeln, Undo, Zellversionen | Property-Tests: Zielwert exakt, Proportionen erhalten, Undo stellt Zustand her | 3 |
@@ -339,7 +362,7 @@ Grobe Schätzung in Personentagen. Jeder Meilenstein endet mit lauffähigem, get
 | M8 | Server | REST, Anmeldung, Rollen, Bereichsrechte, Konflikte, SSE, Hintergrundjobs, TLS | API-Integrationstests inkl. Rechte- und Konfliktfällen; Lasttest 20 simulierte Nutzer | 7 |
 | M9 | Web-UI | Raster mit Eingabe, Editoren, Import, Journal, Verwaltung | Abnahme-Checkliste am Mac; Ansicht 50 × 20 < 500 ms | 9 |
 | M10 | Python + CLI-Client | Bindings lokal und remote, Wheels, pandas, Notebook-Beispiele | `pip install` auf macOS arm64; Notebook „tiny“ läuft lokal und gegen Server | 3 |
-| M11 | Härtung + Betrieb | Benchmarks, Optimierung, Docker-Image, Handbuch, Release-Binaries | Zielwerte aus Kap. 1 erreicht; Release 1.0 | 4 |
+| M11 | Härtung + Betrieb | Benchmarks mit 20 Mio. Zellen, Optimierung, Backup/Update-Ablauf im Container, Handbuch, Release-Binaries und -Images | Zielwerte aus Kap. 1 erreicht, auch im Container mit 4 GB Limit; Release 1.0 | 4 |
 
 Summe ca. 50 Personentage. Zwischenstände zum Ausprobieren: nach M3 (Engine mit Splashing), nach M7 (vollständig per Kommandozeile), nach M9 (gemeinsames Arbeiten im Browser).
 
@@ -357,6 +380,7 @@ Summe ca. 50 Personentage. Zwischenstände zum Ausprobieren: nach M3 (Engine mit
 ## 12. CI und Auslieferung
 
 - GitHub Actions im privaten Repository: Auf jedem Push Linux (fmt, clippy, test). macOS und Windows bei Pull Requests auf `main`, wöchentlich und manuell – macOS-Minuten zählen im privaten Repo zehnfach gegen das Freikontingent (Free-Plan: 2.000 Linux-Minuten ≈ 200 macOS-Minuten/Monat). Auf dem Mac wird ohnehin lokal entwickelt und getestet.
+- Docker-Workflow (`.github/workflows/docker.yml`): baut das Image, startet es mit Compose, prüft Health, Web-UI und sauberes Herunterfahren; bei Tags `v*` Multi-Arch-Veröffentlichung nach `ghcr.io/langdar2/neolap`.
 - Release-Builds: macOS Universal Binary (arm64 + x86_64), Linux (x86_64, arm64), Windows; Docker-Image; Python-Wheels über `maturin-action`.
 - Gatekeeper: Ohne Apple-Entwicklerzertifikat blockiert macOS heruntergeladene Binaries; Alternativen: lokal bauen (`cargo install --path crates/neolap-cli`), einmalig `xattr -d com.apple.quarantine neolap`, oder später signieren und notarisieren.
 
@@ -375,9 +399,9 @@ Summe ca. 50 Personentage. Zwischenstände zum Ausprobieren: nach M3 (Engine mit
 
 ## 14. Offene Punkte
 
-1. Erwartete Zahl gefüllter Basiszellen im größten Cube (Annahme bisher: bis 20 Mio.).
-2. Wo soll der gemeinsame Server laufen (eigener Mac, Linux-VM, Docker-Umgebung bei Otto)? Beeinflusst TLS, Backup und Anmeldung (SSO in Phase 2).
-3. Wie viele Nutzer gleichzeitig, und reichen Schreibrechte auf Elementebene oder werden auch Leserechte auf Elementebene schon in v1 gebraucht?
+1. Wie viele Nutzer gleichzeitig, und reichen Schreibrechte auf Elementebene oder werden auch Leserechte auf Elementebene schon in v1 gebraucht?
+
+Geklärt: max. 20 Mio. gefüllte Basiszellen (03.11.2026); Server läuft überall per Docker Compose (03.11.2026).
 
 ## 15. Phase 2
 

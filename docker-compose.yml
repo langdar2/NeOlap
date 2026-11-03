@@ -1,0 +1,62 @@
+# NeOlap – Betrieb mit Docker Compose
+#
+#   cp .env.example .env            # optional anpassen
+#   docker compose up -d --build    # bauen und starten → http://localhost:8080
+#   docker compose logs -f neolap
+#   docker compose down             # stoppen (Daten bleiben im Volume)
+#
+# Mit HTTPS über Caddy (für Zugriff im Netz):
+#   NEOLAP_DOMAIN=olap.example.de in .env setzen, dann
+#   docker compose --profile tls up -d
+#
+# Ressourcenbedarf: ca. 150 Byte RAM je gefüllter Basiszelle.
+# Beim Maximum von 20 Mio. Zellen also etwa 3 GB – Limit entsprechend setzen.
+
+name: neolap
+
+services:
+  neolap:
+    build: .
+    image: ${NEOLAP_IMAGE:-neolap:local}
+    restart: unless-stopped
+    environment:
+      NEOLAP_LISTEN: 0.0.0.0:8080
+      NEOLAP_DATA_DIR: /data
+      RUST_LOG: ${NEOLAP_LOG:-info}
+    ports:
+      # Standard: nur vom eigenen Rechner erreichbar.
+      # Für Zugriff im Netz ohne TLS-Proxy NEOLAP_BIND=0.0.0.0 setzen (nur in vertrauenswürdigen Netzen).
+      - "${NEOLAP_BIND:-127.0.0.1}:${NEOLAP_PORT:-8080}:8080"
+    volumes:
+      - neolap-data:/data
+    mem_limit: ${NEOLAP_MEM_LIMIT:-4g}
+    stop_grace_period: 30s
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+
+  caddy:
+    image: caddy:2.11-alpine
+    profiles: ["tls"]
+    restart: unless-stopped
+    depends_on:
+      neolap:
+        condition: service_healthy
+    environment:
+      NEOLAP_DOMAIN: ${NEOLAP_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  neolap-data:
+  caddy-data:
+  caddy-config:
