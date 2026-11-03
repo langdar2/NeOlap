@@ -2,6 +2,19 @@
 
 Kurzprotokoll der wesentlichen Entscheidungen. Neue Einträge oben anfügen.
 
+## 2026-11-03 – Kommandozeile, Modelldateien, Benutzer (M7)
+
+| # | Entscheidung | Begründung |
+|---|---|---|
+| E43 | Die CLI-Befehle liegen in einer Bibliothek (`neolap_cli::run`), die Binary ergänzt nur `serve`/`healthcheck` und die Exit-Codes | Ende-zu-Ende-Tests laufen gegen die echte Binary und gegen `run`; der Docker-Betrieb (E11–E14) bleibt unverändert und ist nachgemessen |
+| E44 | Passwörter nie als Argument: `NEOLAP_PASSWORD`, Standardeingabe oder interaktive Abfrage mit Wiederholung; API-Token geht auf stdout, die Warnung auf stderr | Argumente stehen in der Prozessliste und der Shell-Historie |
+| E45 | Benutzer, Rollen und API-Tokens liegen in der Datei (Schema 3, Argon2id); Tokens `nlp_<id>_<geheimnis>` werden einmal gezeigt und nur als Hash gespeichert; ein Passwortwechsel macht alle Tokens des Nutzers ungültig; der letzte Admin kann weder gelöscht noch herabgestuft werden; falscher Name und falsches Passwort sind nicht unterscheidbar (auch nicht über die Zeit) | Plan 6.1; die Verwaltung gehört in den Kern, damit Server (M8) und CLI dieselbe Logik nutzen. Zufall über `getrandom` (plattformübergreifend), nicht über `/dev/urandom` |
+| E46 | Modell-Export: `dimensions/<n>.csv` (eine Zeile je Kante, Alias und Attribute in der ersten Zeile des Elements) + `<n>.toml` (Art, Subsets nach Namen), `cubes/`, `rules/`, `imports/`; deterministisch, entfernt Dateien gelöschter Objekte, lässt fremde Dateien stehen | Plan 4.5; stabile Diffs für Git. Datei → Datenbank → Datei ist die Identität (getestet) |
+| E47 | **Modell-Import behält die `MemberId`s bestehender Elemente** (Dimension wird bearbeitet, nicht neu aufgebaut); nur fehlende Elemente werden entfernt, neue bekommen neue Ids; ein unveränderter Import ändert und protokolliert nichts; vorher wird alles geprüft | Zellen liegen in der Datei unter MemberIds (E27). Ein erster Entwurf baute neu auf und hängte Zellen stillschweigend an falsche Elemente, was ein Roundtrip in eine *leere* Datenbank nicht zeigte; erst der Test mit Daten und umsortierter Datei deckte es auf |
+| E48 | Dimensionsdateien werden ohne Trimmen gelesen (Namen mit Leerzeichen am Rand bleiben erhalten), fremde CSV-Dateien weiter mit Trimmen | Roundtrip-Treue für das, was NeOlap selbst schreibt |
+| E49 | Ein bestehender Cube kann über den Modell-Import seine Dimensionen nicht ändern (klare Fehlermeldung) | Eine andere Dimensionsliste wäre ein neuer Cube; die Fakten ließen sich nicht abbilden |
+| E50 | Schema 3 (`tokens`); Mindest-Rust 1.89 bleibt | siehe E30/E41 |
+
 ## 2026-11-03 – Import und Export (M6)
 
 | # | Entscheidung | Begründung |

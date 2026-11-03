@@ -534,3 +534,148 @@ fn persist_write_speed() {
     }
     println!("1000 single writes: {:?}", t.elapsed());
 }
+
+#[test]
+fn users_authenticate_with_argon2_hashes() {
+    let (_d, path) = tmp();
+    let mut db = sample(&path);
+    db.add_user("dirk", "correct horse battery", Role::Admin, "system")
+        .unwrap();
+    db.add_user("Anna", "another long secret", Role::Planner, "dirk")
+        .unwrap();
+    let u = db.authenticate("DIRK", "correct horse battery").unwrap();
+    assert_eq!((u.name.as_str(), u.role), ("dirk", Role::Admin));
+    // wrong password and unknown user are indistinguishable
+    let wrong = db
+        .authenticate("dirk", "wrong password!!")
+        .unwrap_err()
+        .to_string();
+    let unknown = db
+        .authenticate("nobody", "correct horse battery")
+        .unwrap_err()
+        .to_string();
+    assert_eq!(wrong, unknown);
+    // the file never contains a password
+    let hash: String = db
+        .conn
+        .lock()
+        .query_row(
+            "SELECT password_hash FROM users WHERE name = 'dirk'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(hash.starts_with("$argon2id$") && !hash.contains("correct horse"));
+    assert!(
+        db.add_user("anna", "yet another secret", Role::Reader, "dirk")
+            .is_err()
+    ); // case-insensitive
+    assert!(db.add_user("short", "tiny", Role::Reader, "dirk").is_err());
+    assert!(
+        db.add_user("bad name", "long enough password", Role::Reader, "dirk")
+            .is_err()
+    );
+    assert!(
+        db.add_user("../x", "long enough password", Role::Reader, "dirk")
+            .is_err()
+    );
+    let names: Vec<_> = db
+        .users()
+        .unwrap()
+        .into_iter()
+        .map(|u| (u.name, u.role))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("Anna".to_string(), Role::Planner),
+            ("dirk".to_string(), Role::Admin)
+        ]
+    );
+    drop(db);
+    let db = Database::open(&path).unwrap();
+    assert!(db.authenticate("anna", "another long secret").is_ok());
+}
+
+#[test]
+fn the_last_admin_cannot_be_removed_or_demoted() {
+    let (_d, path) = tmp();
+    let mut db = sample(&path);
+    db.add_user("root", "a very long secret", Role::Admin, "system")
+        .unwrap();
+    assert!(db.remove_user("root", "root").is_err());
+    assert!(db.set_role("root", Role::Planner, "root").is_err());
+    db.add_user("second", "another very long secret", Role::Admin, "root")
+        .unwrap();
+    db.set_role("root", Role::Planner, "second").unwrap();
+    assert!(db.remove_user("second", "second").is_err()); // now the last one
+    db.remove_user("root", "second").unwrap();
+    assert!(db.remove_user("ghost", "second").is_err());
+}
+
+#[test]
+fn tokens_are_shown_once_and_die_with_the_password() {
+    let (_d, path) = tmp();
+    let mut db = sample(&path);
+    db.add_user("anna", "a long enough secret", Role::Planner, "system")
+        .unwrap();
+    let t = db.create_token("anna", "notebook", "anna").unwrap();
+    assert!(t.starts_with("nlp_"));
+    assert_eq!(db.authenticate_token(&t).unwrap().name, "anna");
+    let stored: String = db
+        .conn
+        .lock()
+        .query_row("SELECT token_hash FROM tokens", [], |r| r.get(0))
+        .unwrap();
+    assert!(!stored.contains(t.rsplit('_').next().unwrap()));
+    for bad in [
+        "",
+        "nlp_",
+        "nlp_x_y",
+        "xyz",
+        &format!("{t}0"),
+        &t.replace("nlp_", "nlq_"),
+    ] {
+        assert!(db.authenticate_token(bad).is_err(), "{bad}");
+    }
+    assert!(db.create_token("ghost", "x", "a").is_err());
+    let t2 = db.create_token("anna", "second", "anna").unwrap();
+    assert_ne!(t, t2);
+    db.set_password("anna", "a brand new secret", "anna")
+        .unwrap();
+    assert!(db.authenticate_token(&t).is_err() && db.authenticate_token(&t2).is_err());
+    assert!(db.authenticate("anna", "a long enough secret").is_err());
+    assert!(db.authenticate("anna", "a brand new secret").is_ok());
+    let t3 = db.create_token("anna", "third", "anna").unwrap();
+    assert_eq!(db.revoke_tokens("anna", "anna").unwrap(), 1);
+    assert!(db.authenticate_token(&t3).is_err());
+}
+
+#[test]
+fn user_changes_are_journaled_without_secrets() {
+    let (_d, path) = tmp();
+    let mut db = sample(&path);
+    db.add_user("anna", "a long enough secret", Role::Reader, "admin")
+        .unwrap();
+    db.set_role("anna", Role::Modeler, "admin").unwrap();
+    let t = db.create_token("anna", "x", "admin").unwrap();
+    let all = db.journal(&JournalQuery::default()).unwrap();
+    let ops: Vec<_> = all.iter().take(3).map(|e| e.op.as_str()).collect();
+    assert_eq!(ops, ["token_create", "user_role", "user_add"]);
+    let blob = format!("{all:?}");
+    assert!(
+        !blob.contains("a long enough secret") && !blob.contains(t.rsplit('_').next().unwrap())
+    );
+}
+
+#[test]
+fn roles_are_ordered_and_parse_in_both_languages() {
+    assert!(
+        Role::Reader < Role::Planner
+            && Role::Planner < Role::Modeler
+            && Role::Modeler < Role::Admin
+    );
+    assert_eq!(Role::parse("Planer").unwrap(), Role::Planner);
+    assert_eq!(Role::parse(" MODELLIERER ").unwrap(), Role::Modeler);
+    assert!(Role::parse("boss").is_err());
+}

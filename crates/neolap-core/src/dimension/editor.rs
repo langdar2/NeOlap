@@ -257,6 +257,31 @@ impl DimensionEditor {
         Ok(())
     }
 
+    /// Drops all edges, aliases, attributes and subsets but keeps the members and their ids. A
+    /// following import then rebuilds the structure from a file without renumbering anything.
+    pub fn reset_structure(&mut self) {
+        for kids in &mut self.raw.children {
+            kids.clear();
+        }
+        for (i, aliases) in self.raw.aliases.iter_mut().enumerate() {
+            for a in aliases.drain(..) {
+                self.raw.lookup.remove(&key(&a));
+            }
+            debug_assert!(self.raw.names.get(i).is_some() || aliases.is_empty());
+        }
+        self.raw.attributes.clear();
+        self.raw.subsets.clear();
+    }
+
+    pub fn set_kind(&mut self, kind: DimensionKind) {
+        self.kind = kind;
+    }
+
+    /// Ids of all members.
+    pub fn member_ids(&self) -> Vec<MemberId> {
+        self.live_ids()
+    }
+
     pub fn len(&self) -> usize {
         self.raw.names.iter().flatten().count()
     }
@@ -273,6 +298,10 @@ impl DimensionEditor {
 }
 
 impl DimensionEditor {
+    pub fn name_of_member(&self, id: MemberId) -> String {
+        self.name_of(id)
+    }
+
     pub(crate) fn name_of(&self, id: MemberId) -> String {
         self.raw.names[id as usize].clone().unwrap_or_default()
     }

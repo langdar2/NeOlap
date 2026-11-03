@@ -5,6 +5,7 @@
 //! operation. See `docs/Implementierungsplan.md`, chapter 4.5.
 
 mod schema;
+mod users;
 
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
@@ -21,6 +22,7 @@ use crate::exchange::{ImportReport, ImportSpec, SourceKind};
 use crate::{Error, MemberId, Result};
 
 pub use schema::SCHEMA_VERSION;
+pub use users::{MIN_PASSWORD_LEN, Role, User};
 
 /// Default retention of journal entries.
 pub const DEFAULT_JOURNAL_DAYS: i64 = 90;
@@ -90,7 +92,7 @@ pub(crate) fn decode_key(k: &[u8]) -> Result<Vec<MemberId>> {
         .collect())
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64)
@@ -316,7 +318,7 @@ impl Database {
         self.cubes.values()
     }
 
-    fn tx<T>(&self, f: impl FnOnce(&Transaction) -> Result<T>) -> Result<T> {
+    pub(crate) fn tx<T>(&self, f: impl FnOnce(&Transaction) -> Result<T>) -> Result<T> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
         let out = f(&tx)?;

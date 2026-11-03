@@ -587,7 +587,8 @@ fn schema_v1_files_are_migrated_with_a_backup() {
         let db = db_with_cube(dir.path());
         drop(db);
         let conn = rusqlite::Connection::open(dir.path().join("p.neolap")).unwrap();
-        conn.execute_batch("DROP TABLE import_specs;").unwrap();
+        conn.execute_batch("DROP TABLE import_specs; DROP TABLE tokens;")
+            .unwrap();
         conn.pragma_update(None, "user_version", 1).unwrap();
         conn.execute(
             "UPDATE meta SET value = '1' WHERE key = 'schema_version'",
@@ -602,7 +603,8 @@ fn schema_v1_files_are_migrated_with_a_backup() {
     }
     let mut db = Database::open(&path).unwrap();
     assert_eq!(db.schema_version().unwrap(), crate::persist::SCHEMA_VERSION);
-    assert!(dir.path().join("old.neolap.before-v2").exists());
+    let backup = format!("old.neolap.before-v{}", crate::persist::SCHEMA_VERSION);
+    assert!(dir.path().join(backup).exists());
     db.save_import_spec(WIDE, "a").unwrap();
     assert!(db.cube("sales").is_some());
 }

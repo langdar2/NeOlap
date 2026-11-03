@@ -20,6 +20,7 @@ toml = "0.9"
 serde_json = "1"
 calamine = "0.38"
 rust_xlsxwriter = "0.102"
+argon2 = { version = "0.6", features = ["alloc", "password-hash", "getrandom"] }
 
 [dev-dependencies]
 proptest.workspace = true

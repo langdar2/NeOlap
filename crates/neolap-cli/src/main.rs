@@ -1,8 +1,7 @@
 //! `neolap` – command line interface.
 //!
-//! Milestone M0: `neolap version`, `neolap serve`, `neolap healthcheck`.
-//! Model, import and query commands follow in milestone M7
-//! (see docs/Implementierungsplan.md, chapter 8).
+//! Data, model and user commands live in the library (`neolap_cli`); this binary adds
+//! `serve` and `healthcheck`, which need the server runtime, and maps errors to exit codes.
 //!
 //! All `serve` options can also be set via environment variables (`NEOLAP_*`),
 //! which is how the Docker image is configured.
@@ -15,70 +14,33 @@ use std::{
     time::Duration,
 };
 
-use clap::{Parser, Subcommand};
-
-#[derive(Parser)]
-#[command(
-    name = "neolap",
-    version,
-    about = "NeOlap – lightweight multidimensional database"
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    /// Print version information.
-    Version {
-        /// Output as JSON.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Start the server with web UI.
-    Serve {
-        /// Address to listen on. Default: localhost only.
-        #[arg(long, env = "NEOLAP_LISTEN", default_value = "127.0.0.1:8080")]
-        listen: SocketAddr,
-        /// Directory for databases, journal and backups.
-        #[arg(long, env = "NEOLAP_DATA_DIR", default_value = "./data")]
-        data_dir: PathBuf,
-    },
-    /// Check whether a running server is healthy (exit code 0 = healthy).
-    /// Used as Docker HEALTHCHECK, since the runtime image has no shell or curl.
-    Healthcheck {
-        /// Server address to check.
-        #[arg(
-            long,
-            env = "NEOLAP_HEALTHCHECK_ADDR",
-            default_value = "127.0.0.1:8080"
-        )]
-        addr: String,
-        /// Timeout in seconds.
-        #[arg(long, default_value_t = 3)]
-        timeout: u64,
-    },
-}
+use clap::Parser;
+use neolap_cli::{Cli, Command, DataCommand, Output};
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Command::Version { json } => {
-            let info = neolap_core::build_info();
-            if json {
-                println!("{}", serde_json::to_string(&info).expect("serializable"));
-            } else {
-                println!("{} {}", info.name, info.version);
-            }
-            ExitCode::SUCCESS
-        }
-        Command::Serve { listen, data_dir } => serve(listen, data_dir),
-        Command::Healthcheck { addr, timeout } => {
+        Command::Data(DataCommand::Serve { listen, data_dir }) => serve(listen, data_dir),
+        Command::Data(DataCommand::Healthcheck { addr, timeout }) => {
             match healthcheck(&addr, Duration::from_secs(timeout)) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(msg) => {
                     eprintln!("unhealthy: {msg}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        _ => {
+            let (mut out, mut err) = (std::io::stdout().lock(), std::io::stderr().lock());
+            let mut output = Output {
+                out: &mut out,
+                err: &mut err,
+                json: cli.json,
+            };
+            match neolap_cli::run(cli, &mut output) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(msg) => {
+                    eprintln!("error: {msg}");
                     ExitCode::FAILURE
                 }
             }

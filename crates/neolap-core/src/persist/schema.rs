@@ -5,7 +5,7 @@ use rusqlite::{Connection, params};
 use crate::{Error, Result};
 
 /// Version written by this build; older files are migrated at open, newer ones are rejected.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// Each entry migrates from version `index` to `index + 1`.
 const MIGRATIONS: &[&str] = &["
@@ -36,6 +36,9 @@ CREATE TABLE users (name TEXT PRIMARY KEY, password_hash TEXT NOT NULL, role TEX
 CREATE TABLE grants (user TEXT NOT NULL, cube TEXT NOT NULL, access TEXT NOT NULL, area TEXT NOT NULL DEFAULT '', PRIMARY KEY (user, cube, area)) WITHOUT ROWID;
 ", "
 CREATE TABLE import_specs (name TEXT PRIMARY KEY, cube TEXT NOT NULL, spec TEXT NOT NULL) WITHOUT ROWID;
+", "
+CREATE TABLE tokens (id TEXT PRIMARY KEY, user TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', token_hash TEXT NOT NULL, created INTEGER NOT NULL) WITHOUT ROWID;
+CREATE INDEX tokens_user ON tokens (user);
 "];
 
 pub fn version(conn: &Connection) -> Result<i64> {

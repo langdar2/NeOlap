@@ -13,12 +13,16 @@ use serde::Serialize;
 pub mod cube;
 pub mod dimension;
 pub mod exchange;
+pub mod modelfiles;
 pub mod persist;
 pub mod rules;
 
 pub use cube::{
     CellError, CellValue, Cube, CubeProvider, FactStore, Grid, Input, WriteContext, WriteResult,
 };
+
+pub use exchange::{ImportReport, ImportSpec};
+pub use persist::Database;
 
 pub use dimension::{
     AttrValue, Dimension, DimensionEditor, DimensionKind, LeafSet, LeafShape, Subset,

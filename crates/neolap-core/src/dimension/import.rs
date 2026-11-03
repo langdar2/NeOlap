@@ -25,12 +25,18 @@ pub struct ImportReport {
     pub removed: Vec<String>,
 }
 
-fn reader<R: Read>(input: R, delimiter: u8) -> csv::Reader<R> {
+fn reader<R: Read>(input: R, delimiter: u8, exact: bool) -> csv::Reader<R> {
     csv::ReaderBuilder::new()
         .delimiter(delimiter)
         .has_headers(true)
         .flexible(true)
-        .trim(csv::Trim::All)
+        // Files written by NeOlap quote every name that needs it, so they are read exactly;
+        // foreign files get their cells trimmed.
+        .trim(if exact {
+            csv::Trim::None
+        } else {
+            csv::Trim::All
+        })
         .from_reader(input)
 }
 
@@ -71,7 +77,19 @@ pub fn import_parent_child<R: Read>(
     delimiter: u8,
     mode: ImportMode,
 ) -> Result<ImportReport> {
-    let mut rdr = reader(input, delimiter);
+    import_parent_child_with(ed, input, delimiter, mode, false)
+}
+
+/// Like [`import_parent_child`]; with `exact` the cells are taken as they are (no trimming), which
+/// keeps names with leading or trailing spaces intact. The model files use it.
+pub fn import_parent_child_with<R: Read>(
+    ed: &mut DimensionEditor,
+    input: R,
+    delimiter: u8,
+    mode: ImportMode,
+    exact: bool,
+) -> Result<ImportReport> {
+    let mut rdr = reader(input, delimiter, exact);
     let headers = rdr.headers().map_err(csv_err)?.clone();
     let col = |n: &str| headers.iter().position(|h| h.eq_ignore_ascii_case(n));
     let c_child = col("child").ok_or_else(|| Error::Parse("column 'child' missing".into()))?;
@@ -133,7 +151,7 @@ pub fn import_levels<R: Read>(
     delimiter: u8,
     mode: ImportMode,
 ) -> Result<ImportReport> {
-    let mut rdr = reader(input, delimiter);
+    let mut rdr = reader(input, delimiter, false);
     rdr.headers().map_err(csv_err)?;
     let existing = ed.live_ids();
     let before = ed.len();

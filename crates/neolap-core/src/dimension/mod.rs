@@ -18,7 +18,9 @@ use serde::{Deserialize, Serialize};
 use crate::MemberId;
 
 pub use editor::DimensionEditor;
-pub use import::{ImportMode, ImportReport, import_levels, import_parent_child};
+pub use import::{
+    ImportMode, ImportReport, import_levels, import_parent_child, import_parent_child_with,
+};
 pub use leafset::{LeafSet, LeafShape};
 
 /// Number of leaf sets kept in the cache of one dimension.
