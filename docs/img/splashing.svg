@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 400" width="1000" height="400" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">Rückschreiben auf eine Aggregatzelle</title>
+  <desc id="d">Der Wert 3.000.000 im ersten Quartal wird proportional auf Januar, Februar und März verteilt. Die Summe stimmt exakt.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#475569"/></marker>
+  </defs>
+  <rect width="1000" height="400" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="500" y="38" font-size="18" font-weight="700" fill="#0f172a" text-anchor="middle">Eine Zahl in ein Aggregat tippen – NeOlap verteilt sie</text>
+  <text x="500" y="60" font-size="13" fill="#475569" text-anchor="middle">Umsatz, alle Regionen, ganzes Sortiment – Beispiel „Umsatzplanung“ (die Zahlen sind echt aus dem Screenshot)</text>
+
+  <!-- before -->
+  <text x="130" y="108" font-size="13" font-weight="700" fill="#64748b" text-anchor="middle" letter-spacing="1">VORHER</text>
+  <g font-size="14">
+    <rect x="30" y="120" width="200" height="40" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="46" y="145" fill="#1e3a8a" font-weight="700">Q1</text><text x="214" y="145" fill="#1e3a8a" font-weight="700" text-anchor="end">2.799.308</text>
+    <rect x="50" y="176" width="180" height="34" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="64" y="198" fill="#334155">Jan</text><text x="214" y="198" fill="#334155" text-anchor="end">726.849</text>
+    <rect x="50" y="216" width="180" height="34" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="64" y="238" fill="#334155">Feb</text><text x="214" y="238" fill="#334155" text-anchor="end">920.602</text>
+    <rect x="50" y="256" width="180" height="34" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="64" y="278" fill="#334155">Mär</text><text x="214" y="278" fill="#334155" text-anchor="end">1.151.857</text>
+  </g>
+
+  <!-- input -->
+  <rect x="340" y="116" width="320" height="52" rx="26" fill="#1d4ed8"/>
+  <text x="500" y="140" font-size="12" fill="#bfdbfe" text-anchor="middle">Eingabe in der Zelle Q1 / Umsatz</text>
+  <text x="500" y="160" font-size="17" font-weight="700" fill="#fff" text-anchor="middle">3000000</text>
+  <path d="M250 150 H336" stroke="#475569" stroke-width="1.8" fill="none" marker-end="url(#a)"/>
+  <path d="M664 150 H750" stroke="#475569" stroke-width="1.8" fill="none" marker-end="url(#a)"/>
+
+  <g font-size="13" fill="#334155">
+    <rect x="320" y="196" width="360" height="130" rx="10" fill="#f0fdf4" stroke="#16a34a"/>
+    <text x="500" y="220" text-anchor="middle" font-weight="700" fill="#14532d">proportional zu den vorhandenen Werten</text>
+    <text x="500" y="246" text-anchor="middle">Faktor 3.000.000 / 2.799.308 = 1,0717</text>
+    <text x="500" y="268" text-anchor="middle">gilt für alle 90 Basiszellen darunter</text>
+    <text x="500" y="290" text-anchor="middle">(Regionen × Produkte × Monate)</text>
+    <text x="500" y="312" text-anchor="middle" fill="#166534" font-weight="700">Rundungsrest auf der größten Zelle: Summe exakt</text>
+  </g>
+
+  <!-- after -->
+  <text x="870" y="108" font-size="13" font-weight="700" fill="#64748b" text-anchor="middle" letter-spacing="1">NACHHER</text>
+  <g font-size="14">
+    <rect x="770" y="120" width="200" height="40" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="786" y="145" fill="#1e3a8a" font-weight="700">Q1</text><text x="954" y="145" fill="#1e3a8a" font-weight="700" text-anchor="end">3.000.000</text>
+    <rect x="790" y="176" width="180" height="34" rx="6" fill="#ecfdf5" stroke="#86efac"/>
+    <text x="804" y="198" fill="#334155">Jan</text><text x="954" y="198" fill="#166534" text-anchor="end">778.959,30</text>
+    <rect x="790" y="216" width="180" height="34" rx="6" fill="#ecfdf5" stroke="#86efac"/>
+    <text x="804" y="238" fill="#334155">Feb</text><text x="954" y="238" fill="#166534" text-anchor="end">986.603,12</text>
+    <rect x="790" y="256" width="180" height="34" rx="6" fill="#ecfdf5" stroke="#86efac"/>
+    <text x="804" y="278" fill="#334155">Mär</text><text x="954" y="278" fill="#166534" text-anchor="end">1.234.437,58</text>
+  </g>
+
+  <text x="500" y="360" font-size="13" fill="#475569" text-anchor="middle">Gewinn und Marge ziehen mit: Die Marge ist eine Regel und wird bei jeder Abfrage frisch gerechnet.</text>
+  <text x="500" y="380" font-size="13" fill="#475569" text-anchor="middle">Außerdem möglich: gleichmäßig (#500), Delta (+50), Prozent (+5%), nach Referenzbereich – und Undo.</text>
+</svg>

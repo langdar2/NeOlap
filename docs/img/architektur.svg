@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 540" width="1040" height="540" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">Architektur von NeOlap</title>
+  <desc id="d">Browser, Python und Kommandozeile greifen über den Server oder direkt auf die Engine zu, die alles in einer SQLite-Datei speichert.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#475569"/></marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7c3aed"/></marker>
+  </defs>
+  <rect width="1040" height="540" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+
+  <g text-anchor="middle">
+    <rect x="50" y="28" width="250" height="84" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="175" y="58" font-size="17" font-weight="700" fill="#1e3a8a">Browser</text>
+    <text x="175" y="80" font-size="13" fill="#334155">Pivot-Raster, Eingabe in der Zelle</text>
+    <text x="175" y="98" font-size="13" fill="#334155">Editoren, Import, Journal</text>
+
+    <rect x="375" y="28" width="250" height="84" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="500" y="58" font-size="17" font-weight="700" fill="#1e3a8a">Python</text>
+    <text x="500" y="80" font-size="13" fill="#334155">neolap.open() · neolap.connect()</text>
+    <text x="500" y="98" font-size="13" fill="#334155">pandas, Notebooks</text>
+
+    <rect x="700" y="28" width="250" height="84" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="825" y="58" font-size="17" font-weight="700" fill="#1e3a8a">Kommandozeile</text>
+    <text x="825" y="80" font-size="13" fill="#334155">neolap get · set · load · export</text>
+    <text x="825" y="98" font-size="13" fill="#334155">Skripte, Batch-Importe</text>
+  </g>
+
+  <!-- clients to server -->
+  <path d="M175 112 V150 H430 V176" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#a)"/>
+  <path d="M500 112 V176" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#a)"/>
+  <path d="M825 112 V150 H570 V176" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#a)"/>
+  <text x="500" y="146" font-size="12" fill="#475569" text-anchor="middle" stroke="#fff" stroke-width="4" paint-order="stroke">HTTP · REST /api/v1 · Live-Ereignisse (SSE)</text>
+
+  <!-- server -->
+  <g text-anchor="middle">
+    <rect x="50" y="176" width="900" height="92" rx="10" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="500" y="204" font-size="17" font-weight="700" fill="#14532d">neolap-server  ·  ein Prozess hält die Datenbank</text>
+    <text x="500" y="228" font-size="13" fill="#334155">Anmeldung · Rollen und Bereichsrechte · Konflikterkennung · Hintergrundjobs · zeitgesteuerte Sicherung</text>
+    <text x="500" y="248" font-size="13" fill="#334155">Web-Oberfläche ist eingebettet – kein Node, kein Build-Schritt</text>
+  </g>
+
+  <!-- local, direct -->
+  <path d="M950 70 H985 V372 H950" fill="none" stroke="#7c3aed" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#b)"/>
+  <path d="M625 90 H650 V132 H985" fill="none" stroke="#7c3aed" stroke-width="1.8" stroke-dasharray="6 5"/>
+  <text transform="translate(1008 240) rotate(-90)" font-size="12" fill="#6d28d9" text-anchor="middle">Python und CLI lokal: Datei direkt, exklusiv</text>
+
+  <path d="M500 268 V296" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#a)"/>
+
+  <!-- core -->
+  <rect x="50" y="296" width="900" height="152" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>
+  <text x="500" y="322" font-size="17" font-weight="700" fill="#7c2d12" text-anchor="middle">neolap-core  ·  die gesamte Fachlogik (Rust)</text>
+  <g text-anchor="middle" font-size="13" fill="#334155">
+    <rect x="68" y="340" width="160" height="92" rx="8" fill="#fff" stroke="#fdba74"/>
+    <text x="148" y="362" font-weight="700" fill="#9a3412">Dimensionen</text>
+    <text x="148" y="383">500.000 Elemente</text>
+    <text x="148" y="401">50 Ebenen, Gewichte</text>
+    <text x="148" y="419">mehrere Eltern</text>
+
+    <rect x="240" y="340" width="170" height="92" rx="8" fill="#fff" stroke="#fdba74"/>
+    <text x="325" y="362" font-weight="700" fill="#9a3412">Faktenspeicher</text>
+    <text x="325" y="383">nur Basiszellen,</text>
+    <text x="325" y="401">spaltenweise im RAM,</text>
+    <text x="325" y="419">20 Mio. Zellen</text>
+
+    <rect x="422" y="340" width="170" height="92" rx="8" fill="#fff" stroke="#fdba74"/>
+    <text x="507" y="362" font-weight="700" fill="#9a3412">Abfrage</text>
+    <text x="507" y="383">Aggregate beim Lesen,</text>
+    <text x="507" y="401">paralleler Scan,</text>
+    <text x="507" y="419">Cache</text>
+
+    <rect x="604" y="340" width="170" height="92" rx="8" fill="#fff" stroke="#fdba74"/>
+    <text x="689" y="362" font-weight="700" fill="#9a3412">Rückschreiben</text>
+    <text x="689" y="383">Splashing auf jeder</text>
+    <text x="689" y="401">Ebene, Undo,</text>
+    <text x="689" y="419">Konflikte</text>
+
+    <rect x="786" y="340" width="150" height="92" rx="8" fill="#fff" stroke="#fdba74"/>
+    <text x="861" y="362" font-weight="700" fill="#9a3412">Regeln · Daten</text>
+    <text x="861" y="383">Formelsprache,</text>
+    <text x="861" y="401">Import/Export</text>
+    <text x="861" y="419">CSV und xlsx</text>
+  </g>
+
+  <path d="M500 448 V474" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#a)"/>
+
+  <!-- file -->
+  <g text-anchor="middle">
+    <rect x="250" y="474" width="500" height="48" rx="10" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+    <text x="500" y="494" font-size="15" font-weight="700" fill="#0f172a">eine Datei: neolap.neolap  (SQLite, WAL)</text>
+    <text x="500" y="512" font-size="12" fill="#475569">Modell · Zellen · Benutzer · Regeln · Importvorlagen · Journal</text>
+  </g>
+</svg>
