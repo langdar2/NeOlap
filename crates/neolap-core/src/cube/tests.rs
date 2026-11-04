@@ -270,6 +270,51 @@ fn benchmark_20m() {
     );
 }
 
+/// A base cell is one lookup: reading many of them neither scans the rows nor fills the aggregate
+/// cache (it used to do both, and exporting 120,000 cells took almost three minutes).
+#[test]
+fn reading_base_cells_does_not_fill_the_aggregate_cache() {
+    let c = tiny();
+    assert_eq!(c.cached_cells(), 0);
+    let a = c.address(&["Jan", "Sales"]).unwrap();
+    for _ in 0..1000 {
+        assert_eq!(c.value(&a).unwrap(), Some(100.0));
+    }
+    assert_eq!(c.cached_cells(), 0, "base cells are not cached");
+    assert_eq!(val(&c, &["Q1", "Sales"]), Some(150.0));
+    assert_eq!(c.cached_cells(), 1, "an aggregate is");
+}
+
+proptest! {
+    /// The base-cell shortcut gives exactly what the scan gives, for every base cell of a random cube.
+    #[test]
+    fn base_cell_shortcut_equals_the_scan(
+        pa in proptest::collection::vec(0usize..100, 1..25),
+        pb in proptest::collection::vec(0usize..100, 1..25),
+        facts in proptest::collection::vec((any::<u16>(), any::<u16>(), 1i32..1000), 0..80),
+    ) {
+        let dims: Vec<Arc<Dimension>> = vec![
+            Arc::new(random_tree("a", &pa, &[0])),
+            Arc::new(random_tree("b", &pb, &[0])),
+        ];
+        let mut cube = Cube::new("p", dims.clone());
+        for (x, y, v) in facts {
+            let a = dims[0].leaf_member(x as u32 % dims[0].n_leaves()).unwrap();
+            let b = dims[1].leaf_member(y as u32 % dims[1].n_leaves()).unwrap();
+            cube.set_base(&[a, b], Some(f64::from(v))).unwrap();
+        }
+        for oa in 0..dims[0].n_leaves() {
+            for ob in 0..dims[1].n_leaves() {
+                let (a, b) = (dims[0].leaf_member(oa).unwrap(), dims[1].leaf_member(ob).unwrap());
+                // the scan, forced through the aggregate path
+                let sets: Vec<Arc<LeafSet>> = vec![dims[0].leaf_set(a), dims[1].leaf_set(b)];
+                let scanned = cube.aggregate(&sets);
+                prop_assert_eq!(cube.value(&[a, b]).unwrap(), scanned);
+            }
+        }
+    }
+}
+
 /// Memory breakdown of the fact store (uniform random cells, 20 dimensions × 1,000 leaves).
 /// `cargo test --release -p neolap-core -- --ignored --nocapture memory_breakdown`
 #[test]

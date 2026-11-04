@@ -56,7 +56,31 @@ pub struct User {
 /// Shortest accepted password.
 pub const MIN_PASSWORD_LEN: usize = 10;
 
-fn hash(secret: &str) -> Result<String> {
+/// Marks a token hash made with SHA-256 (older ones are Argon2 strings, which start with `$`).
+const FAST_PREFIX: &str = "sha256:";
+
+/// Hash of an API token for storage. A token is a random 192-bit secret, so guessing it is out of
+/// the question and a slow, memory-hard hash would only make every request wait (an Argon2 check
+/// took ~200 ms, which a script reading a thousand cells pays a thousand times). A plain SHA-256
+/// is enough for that; Argon2 stays for passwords, where people choose weak secrets.
+fn token_digest(secret: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let d = Sha256::digest(secret.as_bytes());
+    let mut out = String::with_capacity(FAST_PREFIX.len() + 64);
+    out.push_str(FAST_PREFIX);
+    for b in d {
+        out.push_str(&format!("{b:02x}"));
+    }
+    out
+}
+
+/// Compares without stopping at the first differing byte.
+fn same(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+pub(crate) fn hash(secret: &str) -> Result<String> {
     Argon2::default()
         .hash_password(secret.as_bytes())
         .map(|h| h.to_string())
@@ -271,7 +295,7 @@ impl Database {
         };
         let id = random_hex(6)?;
         let secret = random_hex(24)?;
-        let h = hash(&secret)?;
+        let h = token_digest(&secret);
         self.tx(|tx| {
             tx.execute(
                 "INSERT INTO tokens (id, user, label, token_hash, created) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -283,6 +307,10 @@ impl Database {
     }
 
     /// Resolves a token (`nlp_<id>_<secret>`) to its user.
+    ///
+    /// Tokens are stored as SHA-256 digests; tokens made by an earlier version are Argon2 hashes
+    /// and are checked that way once, then replaced by the fast digest. An unknown id costs the
+    /// same as a known one (a dummy digest is compared), so the time does not tell whether an id exists.
     pub fn authenticate_token(&self, token: &str) -> Result<User> {
         let denied = || Error::Denied("invalid token".into());
         let rest = token.strip_prefix("nlp_").ok_or_else(denied)?;
@@ -296,9 +324,27 @@ impl Database {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?;
-        let dummy = DUMMY_HASH.get_or_init(|| hash("not-a-real-password").unwrap_or_default());
-        let stored = found.as_ref().map_or(dummy.as_str(), |f| f.1.as_str());
-        let ok = verify(secret, stored);
+        let ok = match found.as_ref().map(|f| f.1.as_str()) {
+            Some(stored) if stored.starts_with(FAST_PREFIX) => same(&token_digest(secret), stored),
+            Some(stored) => {
+                // an Argon2 hash from an earlier version: check it, and upgrade it if it is right
+                let good = verify(secret, stored);
+                if good {
+                    // Best effort: the upgrade only makes later checks faster. If it cannot be
+                    // written (disk full, read-only file), the token is still valid.
+                    let _ = self.conn.lock().execute(
+                        "UPDATE tokens SET token_hash = ?2 WHERE id = ?1",
+                        params![id, token_digest(secret)],
+                    );
+                }
+                good
+            }
+            None => {
+                // same work as for a real token
+                let _ = same(&token_digest(secret), &token_digest("no such token"));
+                false
+            }
+        };
         match found {
             Some((user, _)) if ok => self
                 .users()?

@@ -2066,3 +2066,63 @@ async fn every_response_carries_the_strict_security_headers() {
         assert_eq!(res.headers()["x-frame-options"], "DENY", "{path}");
     }
 }
+
+// ------------------------------------------------------------ reading a cell without rules (Python client)
+
+#[tokio::test]
+async fn a_cell_can_be_read_without_rules_and_the_option_cannot_clash_with_a_dimension() {
+    let env = setup();
+    let root = user(&env, "root").await;
+    send(
+        &env.app,
+        &root,
+        "POST",
+        "/cubes/sales/write",
+        Some(json!({"cell":["Jan","Nord","Sales"],"value":"200"})),
+    )
+    .await;
+    send(
+        &env.app,
+        &root,
+        "POST",
+        "/cubes/sales/write",
+        Some(json!({"cell":["Jan","Nord","Cost"],"value":"150"})),
+    )
+    .await;
+    send(
+        &env.app,
+        &root,
+        "PUT",
+        "/cubes/sales/rules",
+        Some(json!({"text":"['Margin'] = ['Profit'] / ['Sales'];"})),
+    )
+    .await;
+    let base = "/cubes/sales/cell?years=Jan&regions=Nord&measures=Margin";
+    let (_, with) = send(&env.app, &root, "GET", base, None).await;
+    assert_eq!(with["value"], json!(0.25), "rules are applied by default");
+    let (_, without) = send(
+        &env.app,
+        &root,
+        "GET",
+        &format!("{base}&opt.rules=false"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        without["value"],
+        Value::Null,
+        "stored values only: Margin has none"
+    );
+    let (_, explicit) = send(
+        &env.app,
+        &root,
+        "GET",
+        &format!("{base}&opt.rules=true"),
+        None,
+    )
+    .await;
+    assert_eq!(explicit["value"], json!(0.25));
+    // an unprefixed `rules` is not an option: it is ignored (and would be a dimension if there were one of that name)
+    let (s, plain) = send(&env.app, &root, "GET", &format!("{base}&rules=false"), None).await;
+    assert_eq!((s, &plain["value"]), (StatusCode::OK, &json!(0.25)));
+}

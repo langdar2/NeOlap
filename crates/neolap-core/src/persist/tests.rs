@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use proptest::prelude::*;
 use tempfile::TempDir;
 
+use super::users::hash;
 use super::*;
 use crate::cube::{Input, WriteContext};
 use crate::dimension::{AttrValue, DimensionKind};
@@ -879,4 +880,151 @@ fn access_and_role_names_parse() {
     assert_eq!(Access::parse(" NONE ").unwrap(), Access::None);
     assert!(Access::parse("admin").is_err());
     assert!(Access::None < Access::Read && Access::Read < Access::Write);
+}
+
+// ---- API tokens: a fast hash, because a token is a random secret, not a password
+
+fn stored_hash(db: &Database, id_of: &str) -> String {
+    let id = id_of
+        .strip_prefix("nlp_")
+        .unwrap()
+        .split('_')
+        .next()
+        .unwrap()
+        .to_string();
+    db.conn
+        .lock()
+        .query_row(
+            "SELECT token_hash FROM tokens WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+#[test]
+fn a_token_is_checked_in_microseconds_not_in_a_password_hash_time() {
+    let (_d, path) = tmp();
+    let mut db = sample(&path);
+    db.add_user("anna", "a long enough secret", Role::Planner, "system")
+        .unwrap();
+    let t = db.create_token("anna", "x", "anna").unwrap();
+    // the stored value is a SHA-256 digest (marked), never the secret and never an Argon2 string
+    let h = stored_hash(&db, &t);
+    assert!(
+        h.starts_with("sha256:") && h.len() == "sha256:".len() + 64,
+        "{h}"
+    );
+    assert!(!h.contains(t.rsplit('_').next().unwrap()));
+    // 50 checks (valid and invalid) take far less than one Argon2 hash would
+    let start = std::time::Instant::now();
+    for _ in 0..50 {
+        assert!(db.authenticate_token(&t).is_ok());
+        assert!(db.authenticate_token(&format!("{t}0")).is_err());
+    }
+    let per_check = start.elapsed() / 100;
+    assert!(
+        per_check < std::time::Duration::from_millis(5),
+        "a token check took {per_check:?}"
+    );
+}
+
+#[test]
+fn tokens_made_before_the_change_still_work_and_are_upgraded_on_first_use() {
+    let (_d, path) = tmp();
+    let mut db = sample(&path);
+    db.add_user("anna", "a long enough secret", Role::Planner, "system")
+        .unwrap();
+    let t = db.create_token("anna", "old", "anna").unwrap();
+    // rewrite the row the way the previous version stored it: an Argon2 hash of the secret
+    let secret = t.rsplit('_').next().unwrap().to_string();
+    let id = t
+        .strip_prefix("nlp_")
+        .unwrap()
+        .split('_')
+        .next()
+        .unwrap()
+        .to_string();
+    let argon = hash(&secret).unwrap();
+    db.conn
+        .lock()
+        .execute(
+            "UPDATE tokens SET token_hash = ?2 WHERE id = ?1",
+            params![id, argon],
+        )
+        .unwrap();
+    assert!(stored_hash(&db, &t).starts_with("$argon2id$"));
+    assert_eq!(
+        db.authenticate_token(&t).unwrap().name,
+        "anna",
+        "an old token is still valid"
+    );
+    assert!(
+        stored_hash(&db, &t).starts_with("sha256:"),
+        "and is upgraded to the fast hash on first use"
+    );
+    assert_eq!(
+        db.authenticate_token(&t).unwrap().name,
+        "anna",
+        "valid after the upgrade too"
+    );
+    // a wrong secret never upgrades anything, for either kind of stored hash
+    let t2 = db.create_token("anna", "old2", "anna").unwrap();
+    let id2 = t2
+        .strip_prefix("nlp_")
+        .unwrap()
+        .split('_')
+        .next()
+        .unwrap()
+        .to_string();
+    db.conn
+        .lock()
+        .execute(
+            "UPDATE tokens SET token_hash = ?2 WHERE id = ?1",
+            params![id2, hash(t2.rsplit('_').next().unwrap()).unwrap()],
+        )
+        .unwrap();
+    assert!(
+        db.authenticate_token(&format!("nlp_{id2}_{}", "0".repeat(48)))
+            .is_err()
+    );
+    assert!(
+        stored_hash(&db, &t2).starts_with("$argon2id$"),
+        "a failed attempt leaves the old hash alone"
+    );
+}
+
+#[test]
+fn a_token_for_another_id_or_with_a_changed_secret_is_refused() {
+    let (_d, path) = tmp();
+    let mut db = sample(&path);
+    db.add_user("anna", "a long enough secret", Role::Planner, "system")
+        .unwrap();
+    db.add_user("ben", "a long enough secret", Role::Planner, "system")
+        .unwrap();
+    let ta = db.create_token("anna", "a", "anna").unwrap();
+    let tb = db.create_token("ben", "b", "ben").unwrap();
+    let (ida, sa) = ta.strip_prefix("nlp_").unwrap().split_once('_').unwrap();
+    let (idb, sb) = tb.strip_prefix("nlp_").unwrap().split_once('_').unwrap();
+    assert_eq!(db.authenticate_token(&ta).unwrap().name, "anna");
+    assert_eq!(db.authenticate_token(&tb).unwrap().name, "ben");
+    // anna's id with ben's secret, and the other way round: never accepted
+    assert!(db.authenticate_token(&format!("nlp_{ida}_{sb}")).is_err());
+    assert!(db.authenticate_token(&format!("nlp_{idb}_{sa}")).is_err());
+    // a secret that differs in the last character only
+    let mut near = sa.to_string();
+    near.pop();
+    near.push(if sa.ends_with('0') { '1' } else { '0' });
+    assert!(db.authenticate_token(&format!("nlp_{ida}_{near}")).is_err());
+    for bad in [
+        "",
+        "nlp_",
+        "nlp__",
+        "nlp_x",
+        &format!("nlp_{ida}_"),
+        &format!("{ida}_{sa}"),
+        &format!("nlp_{ida}_{}", sa.to_uppercase()),
+    ] {
+        assert!(db.authenticate_token(bad).is_err(), "{bad:?}");
+    }
 }

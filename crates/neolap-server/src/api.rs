@@ -493,7 +493,15 @@ pub async fn cell(
         let refs: Vec<&str> = names.iter().map(String::as_str).collect();
         let addr = c.address(&refs)?;
         let lookup = Lookup(&db);
-        let v = c.cell(&addr, Some(&lookup))?;
+        // `opt.rules=false` reads stored values and plain aggregation, without rules (the Python
+        // client's `rules=False`). Options carry the prefix `opt.` so they never collide with a
+        // dimension that happens to be called `rules`.
+        let with_rules = q.get("opt.rules").map(String::as_str) != Some("false");
+        let v = if with_rules {
+            c.cell(&addr, Some(&lookup))?
+        } else {
+            c.value(&addr)?.map_or(CellValue::Empty, CellValue::Num)
+        };
         let value = match v {
             CellValue::Num(n) => json!(n),
             CellValue::Text(t) => json!(t),

@@ -50,6 +50,10 @@ pub enum Cell {
 pub struct ExportTable {
     pub headers: Vec<String>,
     pub rows: Vec<Vec<Cell>>,
+    /// How many of the first columns are member names; every column after them holds values.
+    /// Consumers take the kind of a column from this, never from its content (a member may be
+    /// called "2026", and a measure may be empty everywhere).
+    pub n_name_columns: usize,
 }
 
 /// Safety limit for one export.
@@ -170,7 +174,11 @@ pub fn export_table(
         }
     }
     if lists.iter().any(Vec::is_empty) {
-        return Ok(ExportTable { headers, rows });
+        return Ok(ExportTable {
+            headers,
+            rows,
+            n_name_columns: if wide.is_some() { n - 1 } else { n },
+        });
     }
     let mut addr: Vec<MemberId> = vec![0; n];
     'outer: loop {
@@ -216,7 +224,11 @@ pub fn export_table(
             idx[d] = 0;
         }
     }
-    Ok(ExportTable { headers, rows })
+    Ok(ExportTable {
+        headers,
+        rows,
+        n_name_columns: if wide.is_some() { n - 1 } else { n },
+    })
 }
 
 fn csv_value(c: &Cell, decimal: char) -> String {

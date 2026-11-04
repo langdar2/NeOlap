@@ -247,9 +247,25 @@ impl Cube {
             .collect()
     }
 
+    /// Number of aggregate results currently cached (base cells are never cached: they are one lookup).
+    pub fn cached_cells(&self) -> usize {
+        self.cache.lock().len()
+    }
+
     /// Value of a cell (base or aggregate); `None` if no base cell contributes.
     pub fn value(&self, addr: &[MemberId]) -> Result<Option<f64>> {
         self.check_addr(addr)?;
+        // A base cell is stored, so it is one hash lookup. Without this, reading a cell cost a scan
+        // over all rows (and a cache entry), and an export of 120,000 cells took almost three minutes.
+        let leaves: Option<Vec<u32>> = self
+            .dims
+            .iter()
+            .zip(addr)
+            .map(|(d, &m)| d.leaf_ordinal(m))
+            .collect();
+        if let Some(coords) = leaves {
+            return Ok(self.store.get(&coords));
+        }
         if let Some(hit) = self.cache.lock().get(addr) {
             return Ok(*hit);
         }
