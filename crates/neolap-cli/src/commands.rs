@@ -151,6 +151,12 @@ pub enum DataCommand {
         /// Password of the first administrator (an environment variable keeps it out of `ps`).
         #[arg(long, env = "NEOLAP_ADMIN_PASSWORD", hide_env_values = true)]
         admin_password: Option<String>,
+        /// Hours between scheduled backups into `<data dir>/backup` (0 = no scheduled backups).
+        #[arg(long, env = "NEOLAP_BACKUP_INTERVAL_HOURS", default_value_t = 24)]
+        backup_interval_hours: u64,
+        /// Number of scheduled backups to keep (older ones are deleted).
+        #[arg(long, env = "NEOLAP_BACKUP_KEEP", default_value_t = 7)]
+        backup_keep: usize,
     },
     /// Check whether a running server is healthy (exit code 0 = healthy).
     Healthcheck {

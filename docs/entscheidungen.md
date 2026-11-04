@@ -2,6 +2,17 @@
 
 Kurzprotokoll der wesentlichen Entscheidungen. Neue Einträge oben anfügen.
 
+## 2026-11-04 – Härtung und Betrieb (M11)
+
+| # | Entscheidung | Begründung |
+|---|---|---|
+| E83 | Zielwerte werden an einem synthetischen Großmodell gemessen (`synth_targets`): zwei Dimensionen mit 500.000 Elementen und 50 Ebenen, vier mit 20.000, vierzehn kleine, Mehrfach-Eltern, negative Gewichte, feste Zufallszahlen | Alle früheren Benchmarks nutzten Dimensionen mit 1.000 Blättern und zwei Ebenen und belegten die Zielwerte daher nicht |
+| E84 | Der ungünstigste Fall für Aggregate sind große Elementmengen (Wurzel, obere Ebenen) auf mehreren Dimensionen zugleich, nicht zufällige Teilbäume | Zufällige Teilbäume sind klein und messen nur 3 ms; ein Zielwert, der nur dafür gilt, wäre wertlos |
+| E85 | Zielwerte des Plans haben keine Referenzhardware. Gemessen auf M4 Pro (14 Kerne) und auf einem GitHub-Runner (2 Kerne, 4 GB). Auf 14 Kernen sind alle Ziele erreicht; auf 2 Kernen liegt der ungünstigste kalte Aggregatwert bei 20 Mio. Zellen über 1 s | Offen: Auftraggeber legt Referenzhardware fest, oder das Handbuch empfiehlt mindestens 4 Kerne (so derzeit) |
+| E86 | Der Container-Benchmark läuft als Workflow `bench.yml` (manuell und wöchentlich), nicht bei jedem Push | Dauert etwa 5 Minuten und misst Zeiten, die auf geteilten Runnern schwanken; ein fester Grenzwert würde die CI unzuverlässig machen |
+| E87 | Zeitgesteuerte Sicherung im Server: `backup/auto-<Zeit>.neolap`, Standard alle 24 h, 7 behalten (`NEOLAP_BACKUP_INTERVAL_HOURS`, `NEOLAP_BACKUP_KEEP`, 0 = aus). Löscht nur eigene `auto-`-Dateien, nie die von Hand erzeugten `backup-` | Ein Betrieb ohne Sicherung ist keiner; Handsicherungen dürfen nie automatisch verschwinden |
+| E88 | Die erste zeitgesteuerte Sicherung entsteht nach einem Intervall, nicht beim Start | Ein Neustart-Zyklus kürzer als das Intervall verhindert sie; im Handbuch beschrieben, nicht verdeckt |
+
 ## 2026-11-04 – Python-Modul (M10)
 
 | # | Entscheidung | Begründung |

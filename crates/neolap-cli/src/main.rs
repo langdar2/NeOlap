@@ -28,6 +28,8 @@ fn main() -> ExitCode {
             trust_proxy,
             admin_user,
             admin_password,
+            backup_interval_hours,
+            backup_keep,
         }) => serve(
             listen,
             data_dir,
@@ -41,6 +43,12 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             },
+            // (interval, keep): 0 hours switches the scheduled backup off
+            (
+                (backup_interval_hours > 0)
+                    .then(|| Duration::from_secs(backup_interval_hours.saturating_mul(3600))),
+                backup_keep,
+            ),
         ),
         Command::Data(DataCommand::Healthcheck { addr, timeout }) => {
             match healthcheck(&addr, Duration::from_secs(timeout)) {
@@ -93,6 +101,7 @@ fn serve(
     secure_cookies: bool,
     trust_proxy: bool,
     admin: Option<(String, String)>,
+    backup: (Option<Duration>, usize),
 ) -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -111,6 +120,7 @@ fn serve(
     config.insecure_cookies = !secure_cookies;
     config.trust_proxy = trust_proxy;
     config.initial_admin = admin;
+    (config.backup_interval, config.backup_keep) = backup;
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     match runtime.block_on(neolap_server::serve(config)) {
         Ok(()) => ExitCode::SUCCESS,

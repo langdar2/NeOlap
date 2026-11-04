@@ -20,6 +20,7 @@ use tower_http::trace::TraceLayer;
 
 mod api;
 mod auth;
+mod backup;
 mod error;
 mod jobs;
 mod state;
@@ -152,6 +153,10 @@ pub struct ServerConfig {
     pub trust_proxy: bool,
     /// First administrator, created at start if the database has no user yet.
     pub initial_admin: Option<(String, String)>,
+    /// Interval of the scheduled backup; `None` switches it off.
+    pub backup_interval: Option<std::time::Duration>,
+    /// How many scheduled backups are kept.
+    pub backup_keep: usize,
 }
 
 impl ServerConfig {
@@ -163,6 +168,8 @@ impl ServerConfig {
             insecure_cookies: true,
             trust_proxy: false,
             initial_admin: None,
+            backup_interval: None,
+            backup_keep: 7,
         }
     }
 }
@@ -211,6 +218,18 @@ pub async fn serve(config: ServerConfig) -> std::io::Result<()> {
             "listening on a non-local address with plain-HTTP cookies; use TLS (Caddy profile) outside trusted networks"
         );
     }
+    let scheduled = config.backup_interval.map(|interval| {
+        tracing::info!(
+            "scheduled backup every {} h, keeping {}",
+            interval.as_secs() / 3600,
+            config.backup_keep
+        );
+        tokio::spawn(backup::schedule(
+            state.clone(),
+            interval,
+            config.backup_keep,
+        ))
+    });
     let app = router(state.clone()).into_make_service_with_connect_info::<SocketAddr>();
     let closing = state.clone();
     axum::serve(listener, app)
@@ -226,6 +245,9 @@ pub async fn serve(config: ServerConfig) -> std::io::Result<()> {
     while state.running_jobs() > 0 && waited < 300 {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         waited += 1;
+    }
+    if let Some(task) = scheduled {
+        task.abort();
     }
     tracing::info!("NeOlap stopped");
     Ok(())

@@ -2,7 +2,7 @@
 
 Leichtgewichtige, modellgetriebene multidimensionale Datenbank (MOLAP) im Geist von MIS Alea und TM1 – mit Rückschreiben auf jeder Ebene, Rechenregeln, Datenimporten und gemeinsamer Nutzung im Browser. Geschrieben in Rust, ausgeliefert als einzelnes Programm für macOS, Linux und Windows.
 
-> **Status:** Meilensteine M0–M10 sind umgesetzt: Engine (Dimensionen, Abfrage, Rückschreiben, Regeln, Persistenz, Import/Export), Kommandozeile, Mehrbenutzer-Server mit REST-API, Web-Oberfläche und Python-Modul (lokal und gegen einen Server). Das Python-Wheel ist nur für macOS arm64 gebaut und geprüft. Die Web-Oberfläche ist im Headless-Browser geprüft, aber noch nicht von einer Person am Mac abgenommen (Abnahme-Checkliste des Plans). Details und Roadmap: [docs/Implementierungsplan.md](docs/Implementierungsplan.md).
+> **Status:** Meilensteine M0–M10 sind umgesetzt, M11 (Härtung und Betrieb) ist zum Teil fertig: Messungen am Großmodell, zeitgesteuerte Sicherung und Handbuch ([docs/Handbuch.md](docs/Handbuch.md)) liegen vor, Release-Binaries und das veröffentlichte Image noch nicht. Umgesetzt sind Engine (Dimensionen, Abfrage, Rückschreiben, Regeln, Persistenz, Import/Export), Kommandozeile, Mehrbenutzer-Server mit REST-API, Web-Oberfläche und Python-Modul (lokal und gegen einen Server). Das Python-Wheel ist nur für macOS arm64 gebaut und geprüft. Die Web-Oberfläche ist im Headless-Browser geprüft, aber noch nicht von einer Person am Mac abgenommen (Abnahme-Checkliste des Plans). Details und Roadmap: [docs/Implementierungsplan.md](docs/Implementierungsplan.md).
 
 ## Funktionen (v1)
 
