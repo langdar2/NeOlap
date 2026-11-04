@@ -88,12 +88,6 @@ pub fn dimension(name: &str, shape: Shape, seed: u64) -> Dimension {
     e.commit().unwrap()
 }
 
-pub fn dimensions(n: usize, shape: Shape, seed: u64) -> Vec<Arc<Dimension>> {
-    (0..n)
-        .map(|d| Arc::new(dimension(&format!("d{d}"), shape, seed + d as u64 * 7919)))
-        .collect()
-}
-
 /// Puts `cells` random base cells into the cube (uniform over each dimension's leaves).
 pub fn fill(cube: &mut Cube, cells: usize, seed: u64) {
     let leaves: Vec<usize> = cube

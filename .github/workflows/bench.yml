@@ -1,0 +1,36 @@
+name: Benchmark
+
+# Chapter 1 targets on the synthetic large model, inside a container with a 4 GB memory limit.
+# Not part of every push: manual and weekly. The numbers belong to the GitHub runner, not to
+# the target hardware; the point is that 20 million cells fit into 4 GB and the times stay sane.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"
+
+jobs:
+  container-4gb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the benchmark binary
+        run: |
+          cargo test --release -p neolap-core --lib --no-run --message-format=json \
+            | python3 -c 'import sys,json
+          for l in sys.stdin:
+              m=json.loads(l)
+              if m.get("reason")=="compiler-artifact" and m.get("executable") and m["target"]["name"]=="neolap_core" and m["profile"]["test"]:
+                  print(m["executable"])' > bin.txt
+          cat bin.txt
+          cp "$(cat bin.txt)" neolap-bench
+      - name: Run with 4 GB limit
+        run: |
+          docker run --rm --memory 4g --memory-swap 4g --cpus 4 \
+            -v "$PWD/neolap-bench:/bench:ro" debian:trixie-slim \
+            sh -c '/bench --ignored --nocapture synth_targets; echo "peak memory: $(( $(cat /sys/fs/cgroup/memory.peak) / 1048576 )) MiB"' \
+            | tee bench.txt
+      - name: Summary
+        run: |
+          { echo '### Benchmark im Container (4 GB)'; echo '```'; grep -v '^$' bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
