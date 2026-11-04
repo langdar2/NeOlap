@@ -1,0 +1,90 @@
+name: Release binaries
+
+# Builds the `neolap` program for macOS (universal), Linux (x86_64, arm64) and Windows, runs each
+# one (`neolap version`) and packs it with a SHA-256 checksum. On version tags (v*) the archives
+# are attached to a GitHub release; a manual run only keeps them as workflow artifacts.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, name: macos-universal, targets: "aarch64-apple-darwin x86_64-apple-darwin" }
+          - { os: ubuntu-latest, name: linux-x86_64, targets: "x86_64-unknown-linux-gnu" }
+          - { os: ubuntu-24.04-arm, name: linux-arm64, targets: "aarch64-unknown-linux-gnu" }
+          - { os: windows-latest, name: windows-x86_64, targets: "x86_64-pc-windows-msvc" }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Add targets
+        run: for t in ${{ matrix.targets }}; do rustup target add "$t"; done
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: for t in ${{ matrix.targets }}; do cargo build --release --locked -p neolap-cli --target "$t"; done
+      - name: Pack
+        run: |
+          mkdir -p out/neolap
+          set -- ${{ matrix.targets }}
+          EXE=neolap; case "${{ matrix.name }}" in windows*) EXE=neolap.exe;; esac
+          if [ "$#" -gt 1 ]; then
+            # macOS: one binary that runs on Apple silicon and on Intel
+            lipo -create -output "out/neolap/$EXE" $(for t in "$@"; do echo "target/$t/release/$EXE"; done)
+          else
+            cp "target/$1/release/$EXE" "out/neolap/$EXE"
+          fi
+          cp README.md LICENSE NOTICE.md out/neolap/
+          cp docs/Handbuch.md out/neolap/
+      - name: Run the packed program
+        run: |
+          EXE=neolap; case "${{ matrix.name }}" in windows*) EXE=neolap.exe;; esac
+          out/neolap/$EXE version
+          out/neolap/$EXE demo tiny "$RUNNER_TEMP/t.neolap"
+          out/neolap/$EXE info "$RUNNER_TEMP/t.neolap" | head -5
+      - name: Archive and checksum
+        run: |
+          EXE=neolap; case "${{ matrix.name }}" in windows*) EXE=neolap.exe;; esac
+          VERSION=$(out/neolap/$EXE version | awk '$1 == "version" {print $2}')
+          test -n "$VERSION"
+          cd out
+          case "${{ matrix.name }}" in
+            windows*) A="neolap-$VERSION-${{ matrix.name }}.zip"; 7z a "$A" neolap >/dev/null ;;
+            *) A="neolap-$VERSION-${{ matrix.name }}.tar.gz"; tar czf "$A" neolap ;;
+          esac
+          if command -v sha256sum >/dev/null; then sha256sum "$A" > "$A.sha256"; else shasum -a 256 "$A" > "$A.sha256"; fi
+          cat "$A.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neolap-${{ matrix.name }}
+          path: |
+            out/*.tar.gz
+            out/*.zip
+            out/*.sha256
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: neolap-*
+          path: dist
+          merge-multiple: true
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "NeOlap ${GITHUB_REF_NAME#v}" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
