@@ -16,6 +16,8 @@ pub mod exchange;
 pub mod modelfiles;
 pub mod persist;
 pub mod rules;
+#[cfg(test)]
+mod synth;
 
 pub use cube::{
     CellError, CellValue, Cube, CubeProvider, FactStore, Grid, Input, WriteContext, WriteResult,

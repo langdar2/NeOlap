@@ -185,6 +185,12 @@ impl Cube {
         &self.store
     }
 
+    /// Direct write access for the synthetic benchmark models (no operation log, no cache reset).
+    #[cfg(test)]
+    pub(crate) fn store_mut(&mut self) -> &mut FactStore {
+        &mut self.store
+    }
+
     pub fn generation(&self) -> u64 {
         self.generation
     }
