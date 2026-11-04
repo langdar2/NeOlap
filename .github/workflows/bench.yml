@@ -27,7 +27,9 @@ jobs:
           cp "$(cat bin.txt)" neolap-bench
       - name: Run with 4 GB limit
         run: |
-          docker run --rm --memory 4g --memory-swap 4g --cpus 4 \
+          set -o pipefail
+          nproc
+          docker run --rm --memory 4g --memory-swap 4g \
             -v "$PWD/neolap-bench:/bench:ro" debian:trixie-slim \
             sh -c '/bench --ignored --nocapture synth_targets; echo "peak memory: $(( $(cat /sys/fs/cgroup/memory.peak) / 1048576 )) MiB"' \
             | tee bench.txt
