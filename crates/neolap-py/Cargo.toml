@@ -10,9 +10,10 @@ repository.workspace = true
 publish = false
 
 [lib]
-name = "neolap"
+name = "_native"
 crate-type = ["cdylib"]
 
 [dependencies]
 neolap-core.workspace = true
 pyo3.workspace = true
+parking_lot.workspace = true

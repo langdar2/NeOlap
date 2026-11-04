@@ -13,6 +13,13 @@ classifiers = [
     "Topic :: Database :: Database Engines/Servers",
 ]
 dynamic = ["version"]
+dependencies = []
+
+[project.optional-dependencies]
+pandas = ["pandas>=1.5", "numpy>=1.23"]
+test = ["pytest>=8", "pandas>=1.5", "numpy>=1.23"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "neolap._native"

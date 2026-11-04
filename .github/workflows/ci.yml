@@ -42,7 +42,33 @@ jobs:
       - name: Every module parses
         run: for f in ui/*.js; do node --check "$f"; done
 
+  # The Python module is tested against the real server binary (every test of the API runs once
+  # on a local file and once through HTTP), and the example notebook is executed in both modes.
   python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # the tests start `target/debug/neolap` (demo model, users, server)
+      - run: cargo build -p neolap-cli
+      - run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          pip install maturin pytest pandas numpy nbformat nbclient ipykernel
+          maturin develop -m crates/neolap-py/Cargo.toml
+          python -c "import neolap; assert neolap.version() == neolap.__version__; print(neolap.version())"
+          pytest crates/neolap-py/tests -q
+
+  # Without pandas: the module must work on its own (no dependency), and say what is missing.
+  python-minimal:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,12 +77,29 @@ jobs:
           python-version: "3.12"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p neolap-cli
       - run: |
           python -m venv .venv
           . .venv/bin/activate
           pip install maturin
-          maturin develop -m crates/neolap-py/Cargo.toml
-          python -c "import neolap; assert neolap.version() == neolap.__version__; print(neolap.version())"
+          maturin build --release -m crates/neolap-py/Cargo.toml --out dist
+          deactivate; python -m venv /tmp/fresh
+          /tmp/fresh/bin/pip install dist/*.whl
+          "$GITHUB_WORKSPACE/target/debug/neolap" demo tiny /tmp/t.neolap
+          cd /tmp
+          /tmp/fresh/bin/python - <<'PY'
+          import importlib.util, neolap
+          assert importlib.util.find_spec("pandas") is None
+          with neolap.open("/tmp/t.neolap") as db:
+              assert db.cube("sales")["Year", "Total", "All", "Sales"] == 165600.0
+              try:
+                  db.cube("sales").area(years="Jan").to_pandas()
+              except ImportError as e:
+                  assert "neolap[pandas]" in str(e)
+              else:
+                  raise SystemExit("to_pandas must explain what is missing")
+          print("works without pandas")
+          PY
 
   other-os:
     if: github.event_name != 'push'

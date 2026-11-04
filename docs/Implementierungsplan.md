@@ -1,6 +1,8 @@
 # NeOlap – Implementierungsplan
 
-Version 6 · Stand 03.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
+Version 7 · Stand 04.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
+
+Änderungen gegenüber Version 6: Python-Modul umgesetzt (Kap. 9); API-Tokens als SHA-256 statt Argon2 (E72); Basiszellen werden mit einem Hash-Zugriff gelesen (E73); Spaltenarten kommen aus der Position (E75).
 
 Änderungen gegenüber Version 5: Web-Oberfläche umgesetzt (Kap. 7); Zahleneingabe nach deutscher Lesart, ein Punkt vor genau drei Ziffern ist ein Tausendertrenner (E61); strikte CSP und DOM ohne Markup aus Daten (E63, E64); der Server beendet beim Herunterfahren die Event-Streams (E69).
 
@@ -348,7 +350,9 @@ df = cube.area(years="2026", version="Actual").to_pandas()
 cube.load(df, mapping={...}, mode="replace_area")
 ```
 
-Lokaler und Server-Modus haben dieselbe API. Lese- und Schreibzugriffe geben den GIL frei; große Bereiche werden spaltenweise übergeben (schnell nach pandas/polars).
+Lokaler und Server-Modus haben dieselbe API. Lese- und Schreibzugriffe geben den GIL frei; große Bereiche werden spaltenweise übergeben (schnell nach pandas).
+
+**Stand der Umsetzung (M10):** Die API wie oben, mit zwei Abweichungen vom Beispiel: `cube.load` braucht zusätzlich zur Spaltenzuordnung `mapping` entweder `values={Element: Spalte}` (eine Spalte je Kennzahl) oder `value_column=` (lange Tabelle), dazu optional `fixed={Dimension: Element}`; und **polars wird nicht unterstützt**, nur pandas (`to_pandas()`, `load(df)`). Alle Ausnahmen erben von `neolap.NeolapError` und sind lokal und remote dieselben. Beschreibung und Begründungen: `docs/entscheidungen.md` E72–E82. Beispiel: `crates/neolap-py/examples/tiny.ipynb` (läuft als Test in beiden Modi).
 
 ## 10. Meilensteine
 

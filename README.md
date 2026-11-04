@@ -2,7 +2,7 @@
 
 Leichtgewichtige, modellgetriebene multidimensionale Datenbank (MOLAP) im Geist von MIS Alea und TM1 – mit Rückschreiben auf jeder Ebene, Rechenregeln, Datenimporten und gemeinsamer Nutzung im Browser. Geschrieben in Rust, ausgeliefert als einzelnes Programm für macOS, Linux und Windows.
 
-> **Status:** Meilensteine M0–M9 sind umgesetzt: Engine (Dimensionen, Abfrage, Rückschreiben, Regeln, Persistenz, Import/Export), Kommandozeile, Mehrbenutzer-Server mit REST-API und Web-Oberfläche. **Das Python-Modul (M10) fehlt noch.** Die Web-Oberfläche ist im Headless-Browser geprüft, aber noch nicht von einer Person am Mac abgenommen (Abnahme-Checkliste des Plans). Details und Roadmap: [docs/Implementierungsplan.md](docs/Implementierungsplan.md).
+> **Status:** Meilensteine M0–M10 sind umgesetzt: Engine (Dimensionen, Abfrage, Rückschreiben, Regeln, Persistenz, Import/Export), Kommandozeile, Mehrbenutzer-Server mit REST-API, Web-Oberfläche und Python-Modul (lokal und gegen einen Server). Das Python-Wheel ist nur für macOS arm64 gebaut und geprüft. Die Web-Oberfläche ist im Headless-Browser geprüft, aber noch nicht von einer Person am Mac abgenommen (Abnahme-Checkliste des Plans). Details und Roadmap: [docs/Implementierungsplan.md](docs/Implementierungsplan.md).
 
 ## Funktionen (v1)
 
@@ -14,7 +14,7 @@ Leichtgewichtige, modellgetriebene multidimensionale Datenbank (MOLAP) im Geist 
 - Mehrbenutzer-Server mit Anmeldung, Rollen, Schreibrechten bis auf Elementebene, Konflikterkennung, Live-Ereignissen (SSE) und Änderungsjournal
 - Kommandozeile `neolap` (lokal auf einer Datei)
 - Web-Oberfläche: Pivot-Raster mit Aufklappen, Eingabe in der Zelle (Splash-Syntax), Einfügen aus Tabellenkalkulationen, Undo (Strg+Z), Konfliktdialog, Live-Aktualisierung; Dimensions- und Regeleditor, Import mit Vorschau, Journal, Verwaltung
-- noch offen: Python-Modul `neolap` (M10)
+- Python-Modul `neolap`: dieselbe API auf einer Datei und gegen einen Server, DataFrames, Laden aus pandas/CSV/xlsx
 
 ## Starten mit Docker Compose (Server)
 
@@ -60,13 +60,37 @@ cargo install --path crates/neolap-cli
 neolap serve
 ```
 
-Python-Modul (Entwicklungsstand) bauen:
+## Python
+
+```sh
+pip install neolap            # ohne Abhängigkeiten; für DataFrames: pip install 'neolap[pandas]'
+```
+
+```python
+import neolap
+
+db = neolap.open("plan.neolap")                                 # eine Datei, exklusiv
+db = neolap.connect("https://olap.intern:8443", token="nlp_…")  # oder ein Server (Token: `neolap user token`)
+
+cube = db.cube("sales")
+cube["Jan", "North", "sedan", "Sales"] = 100.0                  # Zelle schreiben
+cube["Q1", "Total", "All", "Sales"] = 5000                      # Aggregat: Wert wird verteilt
+cube.write(("Q1", "Total", "All", "Sales"), "#5000")            # gleichmäßig verteilen
+df = cube.area(years=["Jan", "Feb", "Mar"], regions="North").to_pandas()   # Bereich als DataFrame
+df["value"] *= 1.05                                                         # mit pandas rechnen ...
+cube.load(df, mapping={d: d for d in cube.dimensions}, value_column="value")  # ... und zurückladen (eine Operation)
+```
+
+Die Beispiele laufen unverändert auf einer Datei und gegen einen Server, ebenso das Notebook [`crates/neolap-py/examples/tiny.ipynb`](crates/neolap-py/examples/tiny.ipynb). Eine Datei ist exklusiv: ein laufender Server und ein Python-Prozess können nicht dieselbe Datei öffnen (`neolap.LockedError`). Ein Token geht nur über https (außer an localhost) und steht nie in einer Fehlermeldung. Alle Fehler sind `neolap.NeolapError` (`NotFoundError`, `ConflictError`, `InputError`, …).
+
+Entwicklung (Rust-Erweiterung und Tests):
 
 ```sh
 python3 -m venv .venv && source .venv/bin/activate
-pip install maturin
+pip install maturin pytest pandas numpy nbformat nbclient ipykernel
+cargo build -p neolap-cli                                      # die Tests starten die echte Binary
 maturin develop -m crates/neolap-py/Cargo.toml
-python -c "import neolap; print(neolap.version())"
+pytest crates/neolap-py/tests                                  # jeder Test läuft lokal und gegen einen Server
 ```
 
 ## Projektstruktur
