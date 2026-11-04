@@ -34,7 +34,25 @@ Beim ersten Start legt der Server mit diesen beiden Werten den Administrator an.
 
 Die Daten liegen im benannten Volume `neolap-data` unter `/data`. `docker compose down` löscht sie nicht; `docker compose down -v` **löscht sie**.
 
-### 3.2 Programm ohne Docker
+### 3.2 Fertiges Programm aus dem Release
+
+Pro Plattform gibt es ein Archiv mit dem Programm `neolap`, README, Lizenz und diesem Handbuch, dazu eine Prüfsumme: `neolap-<Version>-macos-universal.tar.gz` (Apple silicon und Intel), `…-linux-x86_64.tar.gz`, `…-linux-arm64.tar.gz`, `…-windows-x86_64.zip`.
+
+```sh
+shasum -a 256 -c neolap-<Version>-macos-universal.tar.gz.sha256    # Linux: sha256sum -c
+tar xzf neolap-<Version>-macos-universal.tar.gz
+./neolap/neolap version
+```
+
+**macOS:** Das Programm ist nicht signiert und nicht notarisiert (kein Apple-Entwicklerzertifikat). Lädt man das Archiv mit einem Browser herunter, blockiert Gatekeeper das Programm. Abhilfe: einmalig `xattr -d com.apple.quarantine neolap/neolap`, oder das Programm selbst bauen (`cargo install --path crates/neolap-cli`). Das Verhalten ist nach der Beschreibung von Apple formuliert und auf diesem Rechner nicht nachgestellt worden (Download per `gh` setzt die Markierung nicht).
+
+**Windows:** SmartScreen kann bei einem unsignierten Programm warnen („Weitere Informationen“ → „Trotzdem ausführen“). Auch das ist nicht geprüft.
+
+**Linux:** Die Programme sind gegen glibc gebunden; auf einer sehr alten Distribution kann das Programm nicht starten. Für Server ist das Docker-Image der empfohlene Weg.
+
+Alle vier Archive werden von `release.yml` gebaut und dort ausgeführt (`neolap version`, Beispieldatenbank anlegen). Gestartet wurde auf Windows und Linux nur das Programm selbst, nicht der Server.
+
+### 3.3 Programm ohne Docker, aus dem Quelltext
 
 ```sh
 neolap serve --data-dir ./data --listen 127.0.0.1:8080
