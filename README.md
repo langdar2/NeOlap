@@ -134,7 +134,7 @@ neolap set bab.neolap BAB Q1 Vertrieb Gesamtkosten Plan +5%        # Plan im Ver
 neolap export bab.neolap BAB --area "Version=Ist|Plan,Kostenart=Gehälter" -o gehaelter.csv
 ```
 
-> Das Beispiel enthält keine Umlage von Hilfs- auf Hauptkostenstellen. Die Spaltenköpfe „Abweichung“ und „Abweichung in %“ sind in der Oberfläche bei der Standardbreite abgeschnitten („Abweich…“). Die Bilder stammen aus dem Headless-Browser, nicht aus einer Abnahme von Hand.
+> Das Beispiel enthält keine Umlage von Hilfs- auf Hauptkostenstellen. Die Bilder stammen aus dem Headless-Browser, nicht aus einer Abnahme von Hand.
 
 ### 2. Fertiges Programm
 

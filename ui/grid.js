@@ -12,7 +12,7 @@ import { GridSelection, offsetsFor, visibleRange, scrollToReveal, NAV_KEYS } fro
 import { h, formatNumber } from './dom.js';
 
 const ROW_HEIGHT = 26;
-const COL_WIDTH = 110;
+const COL_WIDTH = 150; // keep in sync with --col-w in style.css; fits "Abweichung in %" with its toggle
 const HEADER_WIDTH = 220;
 const HEADER_HEIGHT = 30;
 
