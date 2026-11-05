@@ -108,7 +108,19 @@ python3 examples/build_bab_demo.py bab.neolap
 $NEOLAP serve --data-dir . --database bab.neolap
 ```
 
+![BAB-Planung: zehn Bereiche mit Plan, Ist und beiden Abweichungen](docs/img/bab-bereiche.png)
+
+<sub>Die zehn Bereiche mit Plan, Ist und den beiden berechneten Spalten. Negative Abweichungen sind rot.</sub>
+
+![BAB-Planung: Vertrieb bis auf Teamebene aufgeklappt](docs/img/bab-teams.png)
+
+<sub>Vertrieb → Außendienst → Team. Die Abweichung wird auf jeder Ebene berechnet, auch bei den Teams.</sub>
+
 Anmeldung wie oben. Probieren Sie im Browser: Kostenstelle auf *Vertrieb* einklappen, Geschäftsjahr auf *Q1*, Kostenart *Gesamtkosten*, Version *Plan*, dort `5000000` eingeben. Die Summe verteilt sich auf alle Teams, Kostenarten und Monate darunter (252 Basiszellen). Die Abweichung ändert sich mit.
+
+![Nach der Eingabe von 20.000.000 auf Vertrieb: 1.008 Zellen geändert, die Abweichung ist auf −8,7 % gefallen](docs/img/bab-splash.png)
+
+<sub>Im Bild wurden 20.000.000 auf *Vertrieb / Plan* eingegeben (Geschäftsjahr, Gesamtkosten). Betroffen sind 1.008 Basiszellen. Der Plan liegt nun über dem Ist, die Abweichung des Bereichs fällt auf −8,7 %.</sub>
 
 Dasselbe auf der Kommandozeile (Reihenfolge der Elemente wie in den Cube-Dimensionen: Jahr, Kostenstelle, Kostenart, Version):
 
@@ -118,7 +130,7 @@ neolap set bab.neolap BAB Q1 Vertrieb Gesamtkosten Plan +5%        # Plan im Ver
 neolap export bab.neolap BAB --area "Version=Ist|Plan,Kostenart=Gehälter" -o gehaelter.csv
 ```
 
-> Für dieses Beispiel gibt es noch keine Bildschirmfotos. Es enthält auch keine Umlage von Hilfs- auf Hauptkostenstellen.
+> Das Beispiel enthält keine Umlage von Hilfs- auf Hauptkostenstellen. Die Spaltenköpfe „Abweichung“ und „Abweichung in %“ sind in der Oberfläche bei der Standardbreite abgeschnitten („Abweich…“). Die Bilder stammen aus dem Headless-Browser, nicht aus einer Abnahme von Hand.
 
 ### 2. Fertiges Programm
 
