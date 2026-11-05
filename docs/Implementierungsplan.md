@@ -2,7 +2,7 @@
 
 Version 9 · Stand 05.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
 
-Änderungen gegenüber Version 8: Release 1.0.0 vorbereitet (Version gesetzt, CHANGELOG). Offen bis zur Veröffentlichung: Release-Tag `v1.0.0`, veröffentlichtes Image.
+Änderungen gegenüber Version 8: Release 1.0.0 vorbereitet (Version gesetzt, CHANGELOG). Veröffentlicht am 05.11.2026 als `v1.0.0`: Binaries (4 Plattformen), Python-Wheels (5 Plattformen), Image `ghcr.io/langdar2/neolap` (amd64, arm64). Offen: Referenzhardware für die Zielwerte (E85), Abnahme der Web-Oberfläche durch eine Person, Image-Pull ohne Anmeldung nicht geprüft.
 
 Änderungen gegenüber Version 7: M11 teilweise umgesetzt – Zielwerte an einem synthetischen Großmodell gemessen (E83–E85), zeitgesteuerte Sicherung im Server (E87), Handbuch ([Handbuch.md](Handbuch.md)), Workflows für Container-Messung und Release-Binaries. Offen: Referenzhardware für die Zielwerte, Release-Tag, veröffentlichtes Image.
 

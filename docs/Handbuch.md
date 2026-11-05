@@ -187,5 +187,5 @@ Gemessen mit dem synthetischen Großmodell (`cargo test --release -p neolap-core
 - Kein eingebautes TLS; für HTTPS das Caddy-Profil oder einen eigenen Proxy verwenden.
 - Anmeldungen (Sitzungen) und laufende Importe liegen im Speicher: Nach einem Neustart müssen sich alle neu anmelden, ein laufender Import wird beim geordneten Stopp zu Ende geführt, bei hartem Abbruch verworfen.
 - Keine Zahlenformate im Modell, kein Grund für gesperrte Zellen.
-- Das Python-Wheel ist nur für macOS arm64 gebaut und geprüft; weitere Plattformen baut der Workflow `wheels.yml`.
+- Die Python-Wheels im Release (macOS arm64/x86_64, Linux x86_64/aarch64, Windows) werden von `wheels.yml` gebaut, installiert und importiert; ausprobiert wurde nur macOS arm64. Kein PyPI-Paket.
 - Die Web-Oberfläche ist im Headless-Browser geprüft, die Abnahme durch eine Person steht aus ([Abnahme-M9.md](Abnahme-M9.md)).

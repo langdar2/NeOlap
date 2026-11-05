@@ -8,7 +8,7 @@ NeOlap ist eine leichtgewichtige multidimensionale Datenbank (MOLAP) im Geist vo
 
 <sub>Das Beispiel „Umsatzplanung“ aus [`examples/`](examples/build_planning_demo.py): Im ersten Quartal wurden 3.000.000 Umsatz eingegeben. Die 90 Zellen darunter (Städte × Produkte × Monate) wurden proportional angepasst, der Gewinn zieht mit, und die Marge ist eine Regel.</sub>
 
-> **Status:** Die Meilensteine M0–M10 sind umgesetzt, M11 (Härtung und Betrieb) ist zum Teil fertig. Es gibt noch kein 1.0-Release, kein veröffentlichtes Container-Image und kein Python-Paket auf PyPI. Die Web-Oberfläche ist im Headless-Browser geprüft, aber noch nicht von einer Person abgenommen ([Checkliste](docs/Abnahme-M9.md)). Siehe [Einschränkungen](#einschränkungen).
+> **Status:** Die Meilensteine M0–M10 sind umgesetzt, M11 (Härtung und Betrieb) ist bis auf die Referenzhardware für die Zielwerte fertig. Version 1.0.0 ist als GitHub-Release veröffentlicht (Programme, Python-Wheels, Container-Image). Es gibt kein Python-Paket auf PyPI. Die Web-Oberfläche ist im Headless-Browser geprüft, aber noch nicht von einer Person abgenommen ([Checkliste](docs/Abnahme-M9.md)). Siehe [Einschränkungen](#einschränkungen).
 
 ## Warum NeOlap?
 
@@ -87,7 +87,7 @@ Anmelden mit Benutzer `demo`, Passwort `demo-passwort-123`. Klappen Sie im Pivot
 
 ### 2. Fertiges Programm
 
-Für macOS (universal), Linux (x86_64, arm64) und Windows baut der Workflow `release.yml` Archive mit Prüfsumme. Sie hängen am GitHub-Release, sobald eines veröffentlicht ist. Hinweise zu Gatekeeper und SmartScreen: [Handbuch, Kapitel 3.2](docs/Handbuch.md#32-fertiges-programm-aus-dem-release).
+Für macOS (universal), Linux (x86_64, arm64) und Windows baut der Workflow `release.yml` Archive mit Prüfsumme. Sie hängen am [GitHub-Release](https://github.com/langdar2/NeOlap/releases) `v1.0.0`. Hinweise zu Gatekeeper und SmartScreen: [Handbuch, Kapitel 3.2](docs/Handbuch.md#32-fertiges-programm-aus-dem-release).
 
 ### 3. Server mit Docker Compose
 
@@ -104,7 +104,7 @@ Betrieb, Sicherung, Wiederherstellung und Aktualisierung: [Handbuch](docs/Handbu
 
 ## Aus Python
 
-Das Wheel ist bisher nur auf macOS arm64 gebaut und geprüft (die Matrix für weitere Plattformen steht in `wheels.yml`, ist aber noch nie gelaufen). Es liegt **nicht auf PyPI**, sondern entsteht aus dem Quelltext:
+Das Release `v1.0.0` enthält Wheels für macOS (arm64, x86_64), Linux (x86_64, aarch64) und Windows (amd64), jeweils für Python ab 3.9. Der Workflow `wheels.yml` installiert jedes Wheel in einer sauberen Umgebung und importiert es; auf einem Rechner ausprobiert wurde bisher nur macOS arm64. Das Paket liegt **nicht auf PyPI**. Wheel aus dem Release laden und installieren (`pip install <Datei>.whl`) oder aus dem Quelltext bauen:
 
 ```sh
 python3 -m venv .venv && source .venv/bin/activate
@@ -149,7 +149,8 @@ neolap journal planung.neolap                             # was wurde wann von w
 
 Was NeOlap in dieser Fassung nicht kann oder nicht belegt hat:
 
-- **Kein 1.0-Release.** Es gibt keinen Release-Tag, kein veröffentlichtes Container-Image und kein Python-Paket auf PyPI.
+- **Kein Python-Paket auf PyPI.** Die Wheels hängen nur am GitHub-Release.
+- **Container-Image.** `ghcr.io/langdar2/neolap` wird bei Release-Tags veröffentlicht. Ein Pull ohne Anmeldung ist nicht geprüft und wahrscheinlich nicht möglich, solange das Repository privat ist.
 - **Leistung auf kleinen Servern.** Auf 2 Kernen ist der ungünstigste Fall bei 20 Mio. Zellen langsam (siehe Tabelle).
 - **Kein eingebautes HTTPS.** Dafür gibt es das Caddy-Profil oder einen eigenen Proxy.
 - **Anmeldungen und laufende Importe liegen im Speicher.** Nach einem Neustart müssen sich alle neu anmelden.
