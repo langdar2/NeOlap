@@ -13,4 +13,5 @@ __pycache__/
 *.neolap-wal
 *.neolap-shm
 /backup/
+*.neolap.lock
 graphify-out/

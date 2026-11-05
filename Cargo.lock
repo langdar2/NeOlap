@@ -926,7 +926,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "neolap-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "clap",
  "neolap-core",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "neolap-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "argon2",
  "calamine",
@@ -961,7 +961,7 @@ dependencies = [
 
 [[package]]
 name = "neolap-py"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "neolap-core",
  "parking_lot",
@@ -970,7 +970,7 @@ dependencies = [
 
 [[package]]
 name = "neolap-server"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "axum",
  "futures-util",
