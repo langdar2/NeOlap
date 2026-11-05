@@ -85,6 +85,15 @@ Anmelden mit Benutzer `demo`, Passwort `demo-passwort-123`. Klappen Sie im Pivot
 
 > Das Beispielpasswort ist öffentlich bekannt. Nutzen Sie das Beispiel nur lokal.
 
+**Zweites Beispiel: BAB-Planung.** Ein Betriebsabrechnungsbogen mit 10 Bereichen, 35 Abteilungen und 138 Teams (je Bereich 2–5 Abteilungen, je Abteilung 2–5 Teams), 6 Kostenarten, 12 Monaten und den Versionen Plan und Ist. „Abweichung“ und „Abweichung in %“ sind Regeln. Es sind rund 20.000 Zellen mit erfundenen Zahlen.
+
+```sh
+python3 examples/build_bab_demo.py bab.neolap
+$NEOLAP serve --data-dir . --database bab.neolap
+```
+
+Anmeldung wie oben. Probieren Sie: Kostenstelle auf *Vertrieb* einklappen, Geschäftsjahr auf *Q1*, Kostenart *Gesamtkosten*, Version *Plan*, dort `5000000` eingeben. Die Summe verteilt sich auf alle Teams, Kostenarten und Monate darunter.
+
 ### 2. Fertiges Programm
 
 Für macOS (universal), Linux (x86_64, arm64) und Windows baut der Workflow `release.yml` Archive mit Prüfsumme. Sie hängen am [GitHub-Release](https://github.com/langdar2/NeOlap/releases) `v1.0.0`. Hinweise zu Gatekeeper und SmartScreen: [Handbuch, Kapitel 3.2](docs/Handbuch.md#32-fertiges-programm-aus-dem-release).
@@ -178,7 +187,7 @@ cargo test --release -p neolap-core --lib -- --ignored --nocapture synth_targets
 | `crates/neolap-cli` | Programm `neolap` |
 | `crates/neolap-py` | Python-Modul (PyO3, maturin) |
 | `ui/` | Web-Oberfläche (HTML, CSS und JavaScript-Module, ohne Build-Schritt) |
-| `examples/` | Beispielmodell „Umsatzplanung“ |
+| `examples/` | Beispielmodelle „Umsatzplanung“ und „BAB-Planung“ |
 | `Dockerfile`, `docker-compose.yml`, `deploy/` | Container-Betrieb, optionaler HTTPS-Proxy (Caddy) |
 | `docs/` | [Implementierungsplan](docs/Implementierungsplan.md), [Entscheidungen](docs/entscheidungen.md), [Handbuch](docs/Handbuch.md) |
 
