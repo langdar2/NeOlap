@@ -1,5 +1,12 @@
 # Änderungen
 
+## 1.0.1
+
+- Web-Oberfläche: Die Spalten im Pivot sind 150 statt 110 px breit. Lange Spaltenköpfe wie „Abweichung in %“ oder „Abschreibungen“ wurden vorher abgeschnitten.
+- Neues Beispiel „BAB-Planung“ (`examples/build_bab_demo.py`): 10 Bereiche, 35 Abteilungen, 138 Teams, 6 Kostenarten, Plan und Ist, Abweichung als Regel. Mit Bildern im README.
+- README und Handbuch: Stand nach dem Release 1.0.0 (Wheels, Image, offene Punkte).
+- Release-Workflow für Python-Wheels: macOS x86_64 läuft auf `macos-15-intel`. Ein manueller Start mit `release_tag` hängt Wheels an ein bestehendes Release.
+
 ## 1.0.0
 
 Erste Veröffentlichung. Neuimplementierung von TinyOlap 0.8.27 in Rust.
