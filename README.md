@@ -16,7 +16,7 @@ NeOlap ist eine leichtgewichtige multidimensionale Datenbank (MOLAP) im Geist vo
 |---|---|
 | **Summen sind beschreibbar** | Eingabe auf jeder Ebene einer Hierarchie: proportional, gleichmäßig, als Delta (`+50`), als Prozent (`+5%`) oder nach dem Muster eines anderen Bereichs. Rückgängig mit Strg+Z. |
 | **Tiefe, echte Hierarchien** | Bis zu 500.000 Elemente je Dimension, 50 Ebenen, ungleichmäßige Bäume, Gewichte (Kosten zählen negativ), Elemente mit mehreren Eltern. |
-| **Formeln wie in einer Tabellenkalkulation** | `['Marge in %'] = IF(['Umsatz'] = 0, NULL, ['Gewinn'] / ['Umsatz'] * 100);` – eine Zeile, gilt für das ganze Modell. |
+| **Formeln wie in einer Tabellenkalkulation** | `['Marge in %'] = IF(['Umsatz'] = 0, NULL, ['Gewinn'] / ['Umsatz'] * 100);` – eine Zeile, gilt für das ganze Modell. Ebenso die Plan-Ist-Abweichung im BAB-Beispiel. |
 | **Zusammenarbeit ohne Chaos** | Anmeldung, Rollen, Schreibrechte bis auf Bereiche, Konflikterkennung („jemand hat diese Zelle inzwischen geändert“), Live-Aktualisierung, Änderungsjournal. |
 | **Ein Programm, eine Datei** | Das Programm enthält Server, Web-Oberfläche und Kommandozeile. Alle Daten liegen in einer SQLite-Datei. Kein Node, keine Datenbankinstallation. |
 | **Python inklusive** | Dieselbe API auf einer Datei oder gegen einen Server, mit pandas und Notebooks. |
@@ -85,14 +85,40 @@ Anmelden mit Benutzer `demo`, Passwort `demo-passwort-123`. Klappen Sie im Pivot
 
 > Das Beispielpasswort ist öffentlich bekannt. Nutzen Sie das Beispiel nur lokal.
 
-**Zweites Beispiel: BAB-Planung.** Ein Betriebsabrechnungsbogen mit 10 Bereichen, 35 Abteilungen und 138 Teams (je Bereich 2–5 Abteilungen, je Abteilung 2–5 Teams), 6 Kostenarten, 12 Monaten und den Versionen Plan und Ist. „Abweichung“ und „Abweichung in %“ sind Regeln. Es sind rund 20.000 Zellen mit erfundenen Zahlen.
+### Zweites Beispiel: BAB-Planung mit Plan und Ist
+
+Ein Betriebsabrechnungsbogen, wie ihn ein Controlling pflegt: **10 Bereiche, 35 Abteilungen, 138 Teams** (je Bereich 2–5 Abteilungen, je Abteilung 2–5 Teams), dazu 6 Kostenarten und 12 Monate. Es sind rund 20.000 Zellen mit erfundenen Zahlen.
+
+| Dimension | Aufbau |
+|---|---|
+| Kostenstelle | Unternehmen → Bereich → Abteilung → Team (4 Ebenen, 184 Elemente) |
+| Kostenart | Gesamtkosten → Personal-, Sach-, Gemeinkosten → 6 Kostenarten (Gehälter, Sozialabgaben, Reisekosten, Material, Raumkosten, Abschreibungen) |
+| Jahr | Geschäftsjahr → Quartale → Monate |
+| Version | **Plan**, **Ist**, **Abweichung**, **Abweichung in %** |
+
+Plan und Ist stehen nebeneinander in einer Dimension, nicht in zwei Cubes. Die beiden Abweichungen werden nicht gespeichert, sondern von zwei Regeln berechnet, auf jeder Ebene der Kostenstellen-Hierarchie:
+
+```
+['Abweichung'] = ['Ist'] - ['Plan'];
+['Abweichung in %'] = IF(['Plan'] = 0, NULL, ['Abweichung'] / ['Plan'] * 100);
+```
 
 ```sh
 python3 examples/build_bab_demo.py bab.neolap
 $NEOLAP serve --data-dir . --database bab.neolap
 ```
 
-Anmeldung wie oben. Probieren Sie: Kostenstelle auf *Vertrieb* einklappen, Geschäftsjahr auf *Q1*, Kostenart *Gesamtkosten*, Version *Plan*, dort `5000000` eingeben. Die Summe verteilt sich auf alle Teams, Kostenarten und Monate darunter.
+Anmeldung wie oben. Probieren Sie im Browser: Kostenstelle auf *Vertrieb* einklappen, Geschäftsjahr auf *Q1*, Kostenart *Gesamtkosten*, Version *Plan*, dort `5000000` eingeben. Die Summe verteilt sich auf alle Teams, Kostenarten und Monate darunter (252 Basiszellen). Die Abweichung ändert sich mit.
+
+Dasselbe auf der Kommandozeile (Reihenfolge der Elemente wie in den Cube-Dimensionen: Jahr, Kostenstelle, Kostenart, Version):
+
+```sh
+neolap get bab.neolap BAB --rules Q1 Vertrieb Gesamtkosten "Abweichung in %"
+neolap set bab.neolap BAB Q1 Vertrieb Gesamtkosten Plan +5%        # Plan im Vertrieb um 5 % erhöhen
+neolap export bab.neolap BAB --area "Version=Ist|Plan,Kostenart=Gehälter" -o gehaelter.csv
+```
+
+> Für dieses Beispiel gibt es noch keine Bildschirmfotos. Es enthält auch keine Umlage von Hilfs- auf Hauptkostenstellen.
 
 ### 2. Fertiges Programm
 
