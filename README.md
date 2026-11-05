@@ -116,6 +116,10 @@ $NEOLAP serve --data-dir . --database bab.neolap
 
 <sub>Vertrieb → Außendienst → Team. Die Abweichung wird auf jeder Ebene berechnet, auch bei den Teams.</sub>
 
+![BAB-Planung: Kostenarten in den Spalten, Bereiche in den Zeilen](docs/img/bab-kostenarten.png)
+
+<sub>Die Kostenarten in den Spalten: Gesamtkosten, die Gruppen Personal-, Sach- und Gemeinkosten und darunter die sechs Kostenarten. Version *Plan*, Geschäftsjahr. Die Gruppen lassen sich auf- und zuklappen wie die Kostenstellen.</sub>
+
 Anmeldung wie oben. Probieren Sie im Browser: Kostenstelle auf *Vertrieb* einklappen, Geschäftsjahr auf *Q1*, Kostenart *Gesamtkosten*, Version *Plan*, dort `5000000` eingeben. Die Summe verteilt sich auf alle Teams, Kostenarten und Monate darunter (252 Basiszellen). Die Abweichung ändert sich mit.
 
 ![Nach der Eingabe von 20.000.000 auf Vertrieb: 1.008 Zellen geändert, die Abweichung ist auf −8,7 % gefallen](docs/img/bab-splash.png)
