@@ -278,3 +278,5 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
 @media (prefers-reduced-motion: no-preference) {
   .g-flash { transition: background 1.2s ease-out; }
 }
+
+.mono { font-family: ui-monospace, Menlo, Consolas, monospace; }

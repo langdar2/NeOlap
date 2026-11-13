@@ -100,8 +100,14 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/me", get(auth::me))
         .route("/session", get(auth::session))
         .route("/model", get(api::model))
+        .route("/dimensions", post(api::create_dimension))
         .route("/dimensions/{d}/members", get(api::members))
-        .route("/dimensions/{d}", patch(api::patch_dimension))
+        .route("/dimensions/{d}/rename", post(api::rename_dimension))
+        .route("/dimensions/{d}/import", post(api::import_dimension))
+        .route(
+            "/dimensions/{d}",
+            patch(api::patch_dimension).delete(api::delete_dimension),
+        )
         .route("/cubes/{c}/view", post(api::view))
         .route("/cubes/{c}/cell", get(api::cell))
         .route("/cubes/{c}/write", post(api::write))

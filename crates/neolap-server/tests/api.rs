@@ -212,6 +212,10 @@ async fn every_protected_route_refuses_anonymous_callers() {
         ("GET", "/model"),
         ("GET", "/dimensions/years/members"),
         ("PATCH", "/dimensions/years"),
+        ("POST", "/dimensions"),
+        ("DELETE", "/dimensions/years"),
+        ("POST", "/dimensions/years/rename"),
+        ("POST", "/dimensions/years/import"),
         ("POST", "/cubes/sales/view"),
         ("GET", "/cubes/sales/cell"),
         ("POST", "/cubes/sales/write"),
@@ -992,6 +996,123 @@ async fn modelers_change_dimensions_and_cells_survive() {
         json!(7.0),
         "a rejected change leaves everything as it was"
     );
+}
+
+#[tokio::test]
+async fn modelers_create_rename_import_and_delete_unused_dimensions() {
+    let env = setup();
+    let mo = user(&env, "mo").await;
+    let pia = user(&env, "pia").await;
+    let (s, _) = send(
+        &env.app,
+        &pia,
+        "POST",
+        "/dimensions",
+        Some(json!({"name":"x"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "only modelers");
+    let (s, _) = send(
+        &env.app,
+        &mo,
+        "POST",
+        "/dimensions",
+        Some(json!({"name":"Produkte"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _) = send(
+        &env.app,
+        &mo,
+        "POST",
+        "/dimensions",
+        Some(json!({"name":"produkte"})),
+    )
+    .await;
+    assert_eq!(
+        s,
+        StatusCode::CONFLICT,
+        "names are unique regardless of case"
+    );
+    // the new dimension shows up for modelers, flagged as unused
+    let (_, v) = send(&env.app, &mo, "GET", "/model", None).await;
+    let d = v["dimensions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["name"] == "Produkte")
+        .unwrap();
+    assert_eq!(d["used"], json!(false));
+    // dry run changes nothing, a real run does
+    let csv = "child;parent;weight;Farbe\nAlle;;;\nA;Alle;1;rot\nB;Alle;1;blau\n";
+    let imp = |dry: bool| json!({"text": csv, "dry_run": dry});
+    let (s, v) = send(
+        &env.app,
+        &mo,
+        "POST",
+        "/dimensions/Produkte/import",
+        Some(imp(true)),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["members_added"], json!(3));
+    let (_, v) = send(&env.app, &mo, "GET", "/dimensions/Produkte/members", None).await;
+    assert_eq!(v["members"].as_array().unwrap().len(), 0);
+    let (s, _) = send(
+        &env.app,
+        &mo,
+        "POST",
+        "/dimensions/Produkte/import",
+        Some(imp(false)),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, v) = send(
+        &env.app,
+        &mo,
+        "GET",
+        "/dimensions/Produkte/members?parent=Alle",
+        None,
+    )
+    .await;
+    assert_eq!(v["members"][0]["attributes"]["Farbe"], json!("rot"));
+    let (s, _) = send(
+        &env.app,
+        &mo,
+        "POST",
+        "/dimensions/Produkte/import",
+        Some(json!({"text":"x;y","format":"zip"})),
+    )
+    .await;
+    assert!(s.is_client_error());
+    // rename and delete
+    let (s, _) = send(
+        &env.app,
+        &mo,
+        "POST",
+        "/dimensions/Produkte/rename",
+        Some(json!({"to":"Artikel"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _) = send(&env.app, &mo, "GET", "/dimensions/Artikel/members", None).await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _) = send(&env.app, &mo, "DELETE", "/dimensions/Artikel", None).await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _) = send(&env.app, &mo, "GET", "/dimensions/Artikel/members", None).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    // a dimension used by a cube can be neither renamed nor deleted
+    let (s, _) = send(&env.app, &mo, "DELETE", "/dimensions/years", None).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    let (s, _) = send(
+        &env.app,
+        &mo,
+        "POST",
+        "/dimensions/years/rename",
+        Some(json!({"to":"jahre"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CONFLICT);
 }
 
 #[tokio::test]

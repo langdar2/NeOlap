@@ -423,6 +423,90 @@ impl Database {
         Ok(())
     }
 
+    /// Deletes a dimension that no cube uses.
+    pub fn delete_dimension(&mut self, name: &str, user: &str) -> Result<()> {
+        let key = self
+            .dimension(name)
+            .map(|d| d.name().to_string())
+            .ok_or_else(|| Error::NotFound {
+                kind: "dimension",
+                name: name.to_string(),
+            })?;
+        if let Some(c) = self
+            .cubes
+            .values()
+            .find(|c| c.dimensions().iter().any(|d| d.name() == key))
+        {
+            return Err(Error::Conflict(format!(
+                "dimension '{key}' is used by cube '{}'",
+                c.name()
+            )));
+        }
+        self.tx(|tx| {
+            tx.execute("DELETE FROM dimensions WHERE name = ?1", params![key])?;
+            Self::log(
+                tx,
+                user,
+                "dimension",
+                "",
+                0,
+                0,
+                &format!("dimension '{key}' deleted"),
+            )
+        })?;
+        self.dims.remove(&key);
+        Ok(())
+    }
+
+    /// Renames a dimension that no cube uses (cube files and rules refer to dimensions by name).
+    pub fn rename_dimension(&mut self, name: &str, to: &str, user: &str) -> Result<()> {
+        let to = to.trim();
+        if to.is_empty() {
+            return Err(Error::InvalidOperation(
+                "dimension name must not be empty".into(),
+            ));
+        }
+        let old = self
+            .dimension(name)
+            .cloned()
+            .ok_or_else(|| Error::NotFound {
+                kind: "dimension",
+                name: name.to_string(),
+            })?;
+        let old_name = old.name().to_string();
+        if to == old_name {
+            return Ok(());
+        }
+        if self.dimension(to).is_some_and(|d| d.name() != old_name) {
+            return Err(Error::Conflict(format!("dimension '{to}' already exists")));
+        }
+        if let Some(c) = self
+            .cubes
+            .values()
+            .find(|c| c.dimensions().iter().any(|d| d.name() == old_name))
+        {
+            return Err(Error::Conflict(format!(
+                "dimension '{old_name}' is used by cube '{}'",
+                c.name()
+            )));
+        }
+        let mut data = old.to_data();
+        data.name = to.to_string();
+        let new = Arc::new(Dimension::from_data(data.clone())?);
+        let json = serde_json::to_string(&data).map_err(|e| Error::Storage(e.to_string()))?;
+        self.tx(|tx| {
+            tx.execute("DELETE FROM dimensions WHERE name = ?1", params![old_name])?;
+            tx.execute(
+                "INSERT INTO dimensions (name, data) VALUES (?1, ?2) ON CONFLICT (name) DO UPDATE SET data = excluded.data",
+                params![to, json],
+            )?;
+            Self::log(tx, user, "dimension", "", 0, 0, &format!("dimension '{old_name}' renamed to '{to}'"))
+        })?;
+        self.dims.remove(&old_name);
+        self.dims.insert(to.to_string(), new);
+        Ok(())
+    }
+
     /// Creates a cube over existing dimensions.
     pub fn create_cube(&mut self, name: &str, dimension_names: &[&str], user: &str) -> Result<()> {
         if self.cube(name).is_some() {

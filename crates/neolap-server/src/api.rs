@@ -65,6 +65,20 @@ fn members_json(dim: &neolap_core::Dimension, ids: &[MemberId]) -> Value {
                     "level": dim.level(m),
                     "leaf": dim.is_leaf(m),
                     "children": dim.children(m).len(),
+                    "attributes": dim
+                        .attribute_names()
+                        .filter_map(|a| {
+                            dim.attribute(a, m).map(|v| {
+                                (
+                                    a.to_string(),
+                                    match v {
+                                        neolap_core::AttrValue::Number(n) => json!(n),
+                                        neolap_core::AttrValue::Text(t) => json!(t),
+                                    },
+                                )
+                            })
+                        })
+                        .collect::<serde_json::Map<String, Value>>(),
                 })
             })
             .collect(),
@@ -94,10 +108,20 @@ pub async fn model(State(s): St, auth: Auth) -> ApiResult<Json<Value>> {
             })
         })
         .collect();
+    // modelers also see dimensions no cube uses yet (new or left over)
+    if auth.user.role >= Role::Modeler {
+        for n in db.dimension_names() {
+            dims_used.insert(n.to_string());
+        }
+    }
+    let used_anywhere: std::collections::BTreeSet<String> = db
+        .cubes()
+        .flat_map(|c| c.dimensions().iter().map(|d| d.name().to_string()))
+        .collect();
     let dimensions: Vec<Value> = dims_used
         .iter()
         .filter_map(|n| db.dimension(n))
-        .map(|d| json!({ "name": d.name(), "kind": d.kind(), "members": d.len(), "base_members": d.n_leaves() }))
+        .map(|d| json!({ "name": d.name(), "kind": d.kind(), "members": d.len(), "base_members": d.n_leaves(), "used": used_anywhere.contains(d.name()) }))
         .collect();
     Ok(Json(json!({ "cubes": cubes, "dimensions": dimensions })))
 }
@@ -124,12 +148,13 @@ pub async fn members(
         .dimension(&dim)
         .ok_or_else(|| ApiError::not_found(format!("dimension '{dim}' not found")))?;
     // a dimension is visible if the caller may read at least one cube that uses it
-    let visible = db
-        .readable_cubes(&auth.user.name, auth.user.role)
-        .map_err(ApiError::from)?
-        .iter()
-        .filter_map(|n| db.cube(n))
-        .any(|c| c.dimensions().iter().any(|x| x.name() == d.name()));
+    let visible = auth.user.role >= Role::Modeler
+        || db
+            .readable_cubes(&auth.user.name, auth.user.role)
+            .map_err(ApiError::from)?
+            .iter()
+            .filter_map(|n| db.cube(n))
+            .any(|c| c.dimensions().iter().any(|x| x.name() == d.name()));
     if !visible {
         return Err(ApiError::not_found(format!("dimension '{dim}' not found")));
     }
@@ -277,6 +302,196 @@ pub async fn patch_dimension(
     })
     .await?;
     Ok(Json(json!({ "operations": n })))
+}
+
+fn publish_model(state: &AppState, user: &str) {
+    state.publish(Event {
+        kind: "model",
+        cube: None,
+        generation: 0,
+        user: user.to_string(),
+        cells_changed: 0,
+    });
+}
+
+#[derive(Deserialize)]
+pub struct NewDimension {
+    name: String,
+    #[serde(default)]
+    kind: Option<String>,
+}
+
+fn kind_of(s: Option<&str>) -> ApiResult<neolap_core::DimensionKind> {
+    use neolap_core::DimensionKind as K;
+    match s.unwrap_or("generic") {
+        "generic" => Ok(K::Generic),
+        "time" => Ok(K::Time),
+        "version" => Ok(K::Version),
+        "measures" => Ok(K::Measures),
+        other => Err(ApiError::bad_request(format!("unknown kind '{other}'"))),
+    }
+}
+
+/// Creates an empty dimension (modeler).
+pub async fn create_dimension(
+    State(s): St,
+    auth: Auth,
+    Json(body): Json<NewDimension>,
+) -> ApiResult<Json<Value>> {
+    require_role(&auth, Role::Modeler)?;
+    let name = body.name.trim().to_string();
+    if name.is_empty() {
+        return Err(ApiError::bad_request("the dimension needs a name"));
+    }
+    let kind = kind_of(body.kind.as_deref())?;
+    let user = auth.user.name.clone();
+    let state = s.clone();
+    blocking(move || {
+        let mut db = state.db.write();
+        if db.dimension(&name).is_some() {
+            return Err(ApiError::from(neolap_core::Error::Conflict(format!(
+                "dimension '{name}' already exists"
+            ))));
+        }
+        db.save_dimension(neolap_core::Dimension::new(name, kind), &user)?;
+        publish_model(&state, &user);
+        Ok(())
+    })
+    .await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// Deletes a dimension no cube uses (modeler).
+pub async fn delete_dimension(
+    State(s): St,
+    auth: Auth,
+    Path(dim): Path<String>,
+) -> ApiResult<Json<Value>> {
+    require_role(&auth, Role::Modeler)?;
+    let user = auth.user.name.clone();
+    let state = s.clone();
+    blocking(move || {
+        state.db.write().delete_dimension(&dim, &user)?;
+        publish_model(&state, &user);
+        Ok(())
+    })
+    .await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct RenameDimension {
+    to: String,
+}
+
+/// Renames a dimension no cube uses (modeler).
+pub async fn rename_dimension(
+    State(s): St,
+    auth: Auth,
+    Path(dim): Path<String>,
+    Json(body): Json<RenameDimension>,
+) -> ApiResult<Json<Value>> {
+    require_role(&auth, Role::Modeler)?;
+    let user = auth.user.name.clone();
+    let state = s.clone();
+    blocking(move || {
+        state.db.write().rename_dimension(&dim, &body.to, &user)?;
+        publish_model(&state, &user);
+        Ok(())
+    })
+    .await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct DimensionImport {
+    /// CSV text.
+    text: String,
+    /// `parent-child` (default) or `levels`.
+    #[serde(default)]
+    format: Option<String>,
+    #[serde(default)]
+    delimiter: Option<String>,
+    /// `add` (default) or `sync` (also removes members missing from the file).
+    #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+/// Imports members from CSV text into a dimension (modeler); `dry_run` only reports.
+pub async fn import_dimension(
+    State(s): St,
+    auth: Auth,
+    Path(dim): Path<String>,
+    Json(body): Json<DimensionImport>,
+) -> ApiResult<Json<Value>> {
+    require_role(&auth, Role::Modeler)?;
+    let delimiter = match body.delimiter.as_deref().unwrap_or(";") {
+        "\\t" | "tab" => b'\t',
+        d if d.len() == 1 => d.as_bytes()[0],
+        d => {
+            return Err(ApiError::bad_request(format!(
+                "the delimiter must be one character, not '{d}'"
+            )));
+        }
+    };
+    let mode = match body.mode.as_deref().unwrap_or("add") {
+        "add" => neolap_core::dimension::ImportMode::AddOnly,
+        "sync" => neolap_core::dimension::ImportMode::Sync,
+        other => return Err(ApiError::bad_request(format!("unknown mode '{other}'"))),
+    };
+    let levels = match body.format.as_deref().unwrap_or("parent-child") {
+        "parent-child" => false,
+        "levels" => true,
+        other => return Err(ApiError::bad_request(format!("unknown format '{other}'"))),
+    };
+    let user = auth.user.name.clone();
+    let state = s.clone();
+    let (report, leaves, total) = blocking(move || {
+        let mut db = state.db.write();
+        let old = db
+            .dimension(&dim)
+            .cloned()
+            .ok_or_else(|| ApiError::not_found(format!("dimension '{dim}' not found")))?;
+        let mut ed = old.edit();
+        let input = body.text.trim_start_matches('\u{feff}').as_bytes();
+        let report = if levels {
+            neolap_core::dimension::import_levels(&mut ed, input, delimiter, mode)?
+        } else {
+            neolap_core::dimension::import_parent_child(&mut ed, input, delimiter, mode)?
+        };
+        let new = ed.commit()?;
+        let (leaves, total) = (new.n_leaves(), new.len());
+        if !body.dry_run {
+            db.save_dimension(new, &user)?;
+            let cubes: Vec<(String, u64)> = db
+                .cubes()
+                .filter(|c| c.dimensions().iter().any(|d| d.name() == old.name()))
+                .map(|c| (c.name().to_string(), c.generation()))
+                .collect();
+            for (cube, generation) in cubes {
+                state.publish(Event {
+                    kind: "model",
+                    cube: Some(cube),
+                    generation,
+                    user: user.clone(),
+                    cells_changed: 0,
+                });
+            }
+            publish_model(&state, &user);
+        }
+        Ok((report, leaves, total))
+    })
+    .await?;
+    Ok(Json(json!({
+        "rows": report.rows,
+        "members_added": report.members_added,
+        "removed": report.removed,
+        "members": total,
+        "base_members": leaves,
+        "dry_run": body.dry_run,
+    })))
 }
 
 // ---------------------------------------------------------------- views and writes
