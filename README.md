@@ -201,7 +201,7 @@ neolap journal planung.neolap                             # was wurde wann von w
 Was NeOlap in dieser Fassung nicht kann oder nicht belegt hat:
 
 - **Kein Python-Paket auf PyPI.** Die Wheels hängen nur am GitHub-Release.
-- **Container-Image.** `ghcr.io/langdar2/neolap` wird bei Release-Tags veröffentlicht. Ein Pull ohne Anmeldung ist nicht geprüft und wahrscheinlich nicht möglich, solange das Repository privat ist.
+- **Container-Image.** `ghcr.io/langdar2/neolap` wird bei Release-Tags veröffentlicht. Der Abruf ohne Anmeldung ist für `1.1.0` und `latest` geprüft (Manifest, amd64 und arm64); gestartet wurde das Image dabei nicht.
 - **Leistung auf kleinen Servern.** Auf 2 Kernen ist der ungünstigste Fall bei 20 Mio. Zellen langsam (siehe Tabelle).
 - **Kein eingebautes HTTPS.** Dafür gibt es das Caddy-Profil oder einen eigenen Proxy.
 - **Anmeldungen und laufende Importe liegen im Speicher.** Nach einem Neustart müssen sich alle neu anmelden.

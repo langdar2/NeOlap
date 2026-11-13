@@ -2,7 +2,7 @@
 
 Version 10 · Stand 13.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
 
-Änderungen gegenüber Version 9: Dimensionsverwaltung in API und Web-Oberfläche (Anlegen, Umbenennen, CSV-Import mit Vorschau, Löschen; Kap. 6.3 und 7, Entscheidungen E89–E92). Veröffentlicht am 13.11.2026 als `v1.1.0` (Binaries, Wheels, Image über die Tag-Workflows).
+Änderungen gegenüber Version 9: Dimensionsverwaltung in API und Web-Oberfläche (Anlegen, Umbenennen, CSV-Import mit Vorschau, Löschen; Kap. 6.3 und 7, Entscheidungen E89–E92). Veröffentlicht am 13.11.2026 als `v1.1.0` (4 Binaries, 5 Python-Wheels, Image `ghcr.io/langdar2/neolap` für amd64 und arm64). Der Image-Pull ohne Anmeldung ist geprüft: Das Manifest von `1.1.0` und `latest` ist anonym abrufbar (HTTP 200, beide Plattformen); das Image selbst wurde dabei nicht gestartet. Das Repository ist öffentlich. Die Runner-Labels `macos-14` in `release.yml` und `wheels.yml` wurden durch `macos-latest` ersetzt, weil GitHub `macos-14` nicht mehr bedient. Offen: Referenzhardware für die Zielwerte (E85), Abnahme der Web-Oberfläche durch eine Person.
 
 Release 1.1.0 (13.11.2026): Dimensionsverwaltung in API und Web-Oberfläche; Einzelheiten im [CHANGELOG](../CHANGELOG.md).
 
@@ -36,7 +36,7 @@ NeOlap ist ein leichtgewichtiges, modellgetriebenes MOLAP-Werkzeug im Geist von 
 | Nutzung | Gemeinsam: ein NeOlap-Server, mehrere Nutzer im Browser, per Python oder CLI |
 | Bereitstellung | Server überall per `docker compose up` (Linux, macOS, Windows; amd64 und arm64) |
 | Excel | Phase 2, erst wenn v1 stabil läuft |
-| Ablage | Privates GitHub-Repository `langdar2/NeOlap` |
+| Ablage | GitHub-Repository `langdar2/NeOlap` (öffentlich, Stand 13.11.2026; ursprünglich als privat geplant) |
 
 ### Größenrahmen und Leistungsziele
 
@@ -311,7 +311,7 @@ Ziel: Auf jedem Rechner mit Docker (Linux-Server, Mac mit Docker Desktop/OrbStac
 | Stoppen | `docker stop` sendet SIGTERM; NeOlap beendet offene Anfragen und (ab M5) laufende Transaktionen sauber, `stop_grace_period` 30 s. |
 | Härtung | `read_only`-Dateisystem, `cap_drop: ALL`, `no-new-privileges`, `tmpfs` für `/tmp`, Speicherlimit (Standard 4 GB für 20 Mio. Zellen). |
 | Backup | Ab M5: `docker compose exec neolap neolap backup …` bzw. zeitgesteuertes Backup im Server in `/data/backup`; Sicherung des Volumes per `docker run --rm -v neolap_neolap-data:/data …`. |
-| Verteilung | GitHub Actions baut und testet das Image bei jedem Push auf `main` (Start, Health, sauberer Stopp). Bei Versions-Tags `v*` wird ein Multi-Arch-Image nach `ghcr.io/langdar2/neolap` (privat) veröffentlicht; Nutzung über `NEOLAP_IMAGE` in `.env` nach `docker login ghcr.io`. |
+| Verteilung | GitHub Actions baut und testet das Image bei jedem Push auf `main` (Start, Health, sauberer Stopp). Bei Versions-Tags `v*` wird ein Multi-Arch-Image nach `ghcr.io/langdar2/neolap` veröffentlicht, anonym abrufbar (für `v1.1.0` geprüft); Nutzung über `NEOLAP_IMAGE` in `.env`, eine Anmeldung bei `ghcr.io` ist dafür nicht nötig. |
 | Updates | `docker compose pull && docker compose up -d` (Registry) bzw. `git pull && docker compose up -d --build`; Schema-Migrationen laufen beim Start automatisch (ab M5), vorher automatisches Backup. |
 
 ## 7. Web-Oberfläche (ui/)
