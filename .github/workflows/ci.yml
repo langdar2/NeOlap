@@ -1,8 +1,6 @@
 name: CI
 
-# Linux on every push. macOS and Windows only for pull requests to main,
-# weekly and on demand – macOS minutes count 10x against the free quota of
-# private repositories.
+# Linux, macOS and Windows on every push, pull request, weekly and on demand.
 on:
   push:
   pull_request:
@@ -103,7 +101,6 @@ jobs:
           PY
 
   other-os:
-    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
