@@ -45,7 +45,8 @@ jobs:
   # The Python module is tested against the real server binary (every test of the API runs once
   # on a local file and once through HTTP), and the example notebook is executed in both modes.
   python:
-    runs-on: ubuntu-latest
+    # pinned: ubuntu-latest is 26.04, for which setup-python has no Python 3.9
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:

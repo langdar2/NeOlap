@@ -59,7 +59,13 @@ fn tree(dir: &Path) -> Vec<(String, String)> {
                 stack.push(p);
             } else {
                 out.push((
-                    p.strip_prefix(dir).unwrap().display().to_string(),
+                    // always '/', so the expected list below holds on Windows too
+                    p.strip_prefix(dir)
+                        .unwrap()
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join("/"),
                     std::fs::read_to_string(&p).unwrap(),
                 ));
             }
