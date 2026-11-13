@@ -15,3 +15,5 @@ __pycache__/
 /backup/
 *.neolap.lock
 graphify-out/
+# local settings of the compose setup (hold the administrator password)
+.env
