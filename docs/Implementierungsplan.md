@@ -2,7 +2,9 @@
 
 Version 10 · Stand 13.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
 
-Änderungen gegenüber Version 9: Dimensionsverwaltung in API und Web-Oberfläche (Anlegen, Umbenennen, CSV-Import mit Vorschau, Löschen; Kap. 6.3 und 7, Entscheidungen E89–E92). Version 1.1.0 ist gesetzt, aber noch nicht veröffentlicht (kein Tag, kein Release).
+Änderungen gegenüber Version 9: Dimensionsverwaltung in API und Web-Oberfläche (Anlegen, Umbenennen, CSV-Import mit Vorschau, Löschen; Kap. 6.3 und 7, Entscheidungen E89–E92). Veröffentlicht am 13.11.2026 als `v1.1.0` (Binaries, Wheels, Image über die Tag-Workflows).
+
+Release 1.1.0 (13.11.2026): Dimensionsverwaltung in API und Web-Oberfläche; Einzelheiten im [CHANGELOG](../CHANGELOG.md).
 
 Release 1.0.1 (05.11.2026): breitere Pivot-Spalten, Beispiel „BAB-Planung“, Doku-Stand; Einzelheiten im [CHANGELOG](../CHANGELOG.md).
 
