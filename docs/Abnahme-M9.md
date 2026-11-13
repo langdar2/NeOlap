@@ -1,6 +1,6 @@
 # Abnahme M9: Web-Oberfläche
 
-Checkliste für eine Person am Mac. Dauer etwa 45 Minuten. Alle Punkte sind bisher nur im Headless-Browser (Chromium) durchgespielt worden, nie von Hand und nie in Safari oder Firefox. Die Shell-Blöcke in Abschnitt 0 und 10 sind wörtlich ausgeführt worden und laufen; Abschnitt 11 (Docker) und die Browser-Punkte in 9.1 bis 9.5 sind nicht geprüft.
+Checkliste für eine Person am Mac. Dauer etwa 45 Minuten. Alle Punkte sind bisher nur im Headless-Browser (Chromium) durchgespielt worden, nie von Hand und nie in Safari oder Firefox. Die Shell-Blöcke in Abschnitt 0 und 10 sind wörtlich ausgeführt worden und laufen; die Browser-Punkte in 9.1 bis 9.5 sind nicht geprüft. Abschnitt 11 (Docker) wurde am 13.11.2026 mit dem veröffentlichten Image `ghcr.io/langdar2/neolap:1.1.0` durchgespielt (siehe dort), der lokale Build aber nicht.
 
 Eintragen: Haken setzen, bei Abweichung die Nummer und was Sie gesehen haben notieren.
 
@@ -145,10 +145,12 @@ $N serve --data-dir big/data --listen 127.0.0.1:8081
 
 ## 11. Docker (einmalig, wenn Docker vorhanden ist)
 
-- [ ] **11.1** `cp .env.example .env`, in `.env` `NEOLAP_ADMIN_PASSWORD` setzen, `docker compose up -d --build`. Anmeldung mit `admin` und diesem Passwort funktioniert.
-- [ ] **11.2** `docker compose restart neolap`: Anmeldung weiter möglich, Daten noch da (Volume).
-- [ ] **11.3** Mit offenem Browser-Tab `docker compose stop neolap`: Container endet in unter 5 Sekunden, nicht erst nach 30.
-- [ ] **11.4** CI-Lauf auf GitHub (Workflow „Docker") ist grün. Der Schritt „Login, protected routes and data in the volume" lief bisher nie.
+Stand vom 13.11.2026: 11.1 bis 11.3 wurden mit dem fertigen Image `ghcr.io/langdar2/neolap:1.1.0` durchgespielt (`NEOLAP_IMAGE` in einer Env-Datei außerhalb des Repos, Port 18090, Headless-Browser) und verhielten sich wie beschrieben. **Nicht geprüft** ist der lokale Build mit `--build`: Er scheiterte auf dem Rechner dieser Prüfung an einem Zertifikat (`self-signed certificate in certificate chain` bei `cargo fetch`, vermutlich ein Proxy). Der Build in GitHub Actions läuft grün. Ebenfalls nicht geprüft: das Profil `tls` mit Caddy und die jeweils andere Prozessorarchitektur.
+
+- [ ] **11.1** `cp .env.example .env`, in `.env` `NEOLAP_ADMIN_PASSWORD` setzen, `docker compose up -d --build`. Anmeldung mit `admin` und diesem Passwort funktioniert. (`.env` steht in der `.gitignore`.) Mit dem fertigen Image statt des Builds: `NEOLAP_IMAGE=ghcr.io/langdar2/neolap:1.1.0` in `.env` setzen und `docker compose up -d --no-build` starten.
+- [ ] **11.2** `docker compose restart neolap`: Die Sitzung ist danach beendet (Sitzungen liegen im Speicher), die erneute Anmeldung funktioniert, die Daten sind noch da (Volume).
+- [ ] **11.3** Mit offenem Browser-Tab `docker compose stop neolap`: Container endet in unter 5 Sekunden, nicht erst nach 30. Gemessen: 0,24 s, Exit-Code 0.
+- [ ] **11.4** CI-Lauf auf GitHub (Workflow „Docker") ist grün. Der Schritt „Login, protected routes and data in the volume" lief zuletzt im Lauf `43420085626` erfolgreich.
 
 ## Bekannte Einschränkungen (keine Abnahmefehler)
 
