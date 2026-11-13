@@ -124,9 +124,18 @@ mod tests {
         // the time stamp has a resolution of one second, so wait for three distinct files
         tokio::time::sleep(Duration::from_millis(3600)).await;
         task.abort();
-        let n = std::fs::read_dir(dir.path().join("backup"))
+        let mut files: Vec<String> = std::fs::read_dir(dir.path().join("backup"))
             .unwrap()
-            .count();
-        assert_eq!(n, 2, "three were written, the oldest was deleted");
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        files.sort();
+        // the file names are in the message: this test failed once in CI with 4 files instead
+        // of 2 and could not be reproduced, so the next failure should say which files it was
+        assert_eq!(
+            files.len(),
+            2,
+            "three were written, the oldest was deleted; found {files:?}"
+        );
     }
 }
