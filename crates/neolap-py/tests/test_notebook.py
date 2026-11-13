@@ -33,8 +33,18 @@ def _run(env_extra, path_dirs):
     out = []
     for cell in nb.cells:
         if cell.cell_type == "code":
+            # The kernel flushes stdout about every 0.2 s, so one cell's prints can arrive as one
+            # block or as several, depending on how fast the machine is. Blocks of the same stream
+            # are therefore joined as they are (the line breaks are already in the text), or the
+            # number of blank lines would depend on timing.
+            merged = []
             for o in cell.outputs:
-                out.append(o.get("text") or o.get("data", {}).get("text/plain") or "")
+                text = o.get("text") or o.get("data", {}).get("text/plain") or ""
+                if merged and o.get("output_type") == "stream" and merged[-1][0] == o.get("name"):
+                    merged[-1][1] += text
+                else:
+                    merged.append([o.get("name") if o.get("output_type") == "stream" else None, text])
+            out.extend(text for _, text in merged)
     return "\n".join(str(x) for x in out)
 
 
