@@ -36,7 +36,7 @@ NeOlap ist ein leichtgewichtiges, modellgetriebenes MOLAP-Werkzeug im Geist von 
 | Nutzung | Gemeinsam: ein NeOlap-Server, mehrere Nutzer im Browser, per Python oder CLI |
 | Bereitstellung | Server überall per `docker compose up` (Linux, macOS, Windows; amd64 und arm64) |
 | Excel | Phase 2, erst wenn v1 stabil läuft |
-| Ablage | GitHub-Repository `langdar2/NeOlap` (öffentlich, Stand 13.11.2026; ursprünglich als privat geplant) |
+| Ablage | Öffentliches GitHub-Repository `langdar2/NeOlap` |
 
 ### Größenrahmen und Leistungsziele
 
@@ -403,7 +403,7 @@ Summe ca. 50 Personentage. Zwischenstände zum Ausprobieren: nach M3 (Engine mit
 
 ## 12. CI und Auslieferung
 
-- GitHub Actions im privaten Repository: Auf jedem Push Linux (fmt, clippy, test). macOS und Windows bei Pull Requests auf `main`, wöchentlich und manuell – macOS-Minuten zählen im privaten Repo zehnfach gegen das Freikontingent (Free-Plan: 2.000 Linux-Minuten ≈ 200 macOS-Minuten/Monat). Auf dem Mac wird ohnehin lokal entwickelt und getestet.
+- GitHub Actions im öffentlichen Repository: Auf jedem Push Linux (fmt, clippy, test). macOS und Windows bei Pull Requests auf `main`, wöchentlich und manuell. Die ursprüngliche Begründung (macOS-Minuten zählen in privaten Repositories zehnfach gegen das Freikontingent) betraf private Repositories. Ob macOS und Windows künftig bei jedem Push laufen sollen, ist offen; bis dahin zeigt ein Windows-Fehler sich erst im Pull Request, im wöchentlichen Lauf oder im manuellen Start (so geschehen bei `export_is_readable_and_deterministic`, behoben in `28dccad`). Auf dem Mac wird ohnehin lokal entwickelt und getestet.
 - Docker-Workflow (`.github/workflows/docker.yml`): baut das Image, startet es mit Compose, prüft Health, Web-UI und sauberes Herunterfahren; bei Tags `v*` Multi-Arch-Veröffentlichung nach `ghcr.io/langdar2/neolap`.
 - Release-Builds: macOS Universal Binary (arm64 + x86_64), Linux (x86_64, arm64), Windows; Docker-Image; Python-Wheels über `maturin-action`.
 - Gatekeeper: Ohne Apple-Entwicklerzertifikat blockiert macOS heruntergeladene Binaries; Alternativen: lokal bauen (`cargo install --path crates/neolap-cli`), einmalig `xattr -d com.apple.quarantine neolap`, oder später signieren und notarisieren.
