@@ -86,6 +86,8 @@ docker compose stop neolap
 docker compose run --rm --no-deps --entrypoint /usr/local/bin/neolap neolap user list /data/neolap.neolap
 ```
 
+**Dimensionen verwalten** (ab Version 1.1.0, ab Rolle `modeler`): Auf der Seite „Dimensionen“ legt „Neue Dimension“ eine leere Dimension an (Art: `generic`, `time`, `version` oder `measures`). „Import …“ liest Elemente aus einer CSV-Datei oder eingefügtem Text, im Format „Eltern-Kind“ (Kopfzeile `child;parent;weight`) oder „Ebenen“. Vor dem Ausführen zeigt eine Vorschau, wie viele Elemente neu entstehen. Im Modus „Abgleichen“ werden Elemente gelöscht, die in der CSV fehlen. Die Vorschau nennt sie, und ihre Werte verschwinden in allen Cubes. „Dimension umbenennen“ und „Dimension löschen“ sind gesperrt, solange ein Cube die Dimension nutzt. Eine Dimension, die in keinem Cube vorkommt, sehen nur Modellierer und Administratoren. Die Schnittstelle dazu steht im Implementierungsplan, Kapitel 6.3.
+
 Für Skripte und das Python-Modul gibt es API-Tokens. Ein Token wird **einmal** angezeigt und ist danach nicht mehr lesbar. Ein verlorener Token wird widerrufen und neu erstellt.
 
 Nach 5 falschen Anmeldungen innerhalb von 5 Minuten sperrt der Server weitere Versuche, getrennt nach Benutzername und nach Adresse des Aufrufers.

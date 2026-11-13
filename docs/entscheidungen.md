@@ -2,6 +2,15 @@
 
 Kurzprotokoll der wesentlichen Entscheidungen. Neue Einträge oben anfügen.
 
+## 2026-11-13 – Dimensionsverwaltung (1.1.0)
+
+| # | Entscheidung | Begründung |
+|---|---|---|
+| E89 | Umbenennen und Löschen einer Dimension sind nur erlaubt, solange kein Cube sie nutzt; sonst Konflikt (HTTP 409) und gesperrte Knöpfe in der UI | Cube-Dateien und Regeln verweisen auf Dimensionen über den Namen; ein Umbenennen würde sie stillschweigend brechen, ein Löschen Zellen verwaisen lassen |
+| E90 | Modellierer sehen in `/model` auch Dimensionen, die kein Cube nutzt, mit dem Feld `used`; andere Rollen nicht | Eine neu angelegte Dimension wäre sonst bis zum ersten Cube unsichtbar und nicht zu befüllen |
+| E91 | Der Dimensionsimport läuft in der UI immer zuerst als Vorschau (`dry_run`) und braucht eine Bestätigung. Im Modus „Abgleichen“ nennt die Vorschau die Elemente, die entfernt würden | Der Import kann Elemente und damit Zellwerte in allen Cubes löschen |
+| E92 | Die Seite „Dimensionen“ ignoriert das `model`-Ereignis zu einer eigenen Umbenennung oder Löschung und baut sich selbst neu auf. Bei einer fremden Änderung lädt sie das Modell neu und wechselt auf die vorhandenen Dimensionen, wenn die geöffnete fehlt | Sonst fragte die Seite die Elemente unter dem alten Namen ab (404 in der Konsole) |
+
 ## 2026-11-04 – Härtung und Betrieb (M11)
 
 | # | Entscheidung | Begründung |

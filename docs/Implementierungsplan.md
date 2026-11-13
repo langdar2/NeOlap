@@ -1,6 +1,8 @@
 # NeOlap – Implementierungsplan
 
-Version 9 · Stand 05.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
+Version 10 · Stand 13.11.2026 · Neuimplementierung von TinyOlap 0.8.27 (Python, MIT, Thomas Zeutschler) in Rust
+
+Änderungen gegenüber Version 9: Dimensionsverwaltung in API und Web-Oberfläche (Anlegen, Umbenennen, CSV-Import mit Vorschau, Löschen; Kap. 6.3 und 7, Entscheidungen E89–E92). Version 1.1.0 ist gesetzt, aber noch nicht veröffentlicht (kein Tag, kein Release).
 
 Release 1.0.1 (05.11.2026): breitere Pivot-Spalten, Beispiel „BAB-Planung“, Doku-Stand; Einzelheiten im [CHANGELOG](../CHANGELOG.md).
 
@@ -274,7 +276,11 @@ Rechte je Cube: lesen / schreiben / kein Zugriff. **Lesen gilt je Cube, Schreibe
 | POST | `/api/login`, `/api/logout` | Sitzung |
 | GET | `/api/model` | Dimensionen, Cubes, Ansichten (gefiltert nach Rechten) |
 | GET | `/api/dimensions/{d}/members?parent=&search=&offset=&limit=` | Elemente seitenweise, Baum-Navigation, Suche |
+| POST | `/api/dimensions` | Leere Dimension anlegen: `name`, `kind` (Modellierer) |
 | PATCH | `/api/dimensions/{d}` | Elementänderungen (Modellierer) |
+| POST | `/api/dimensions/{d}/rename` | Dimension umbenennen, nur wenn kein Cube sie nutzt (Modellierer) |
+| POST | `/api/dimensions/{d}/import` | Elemente aus CSV-Text: `format` (`parent-child`, `levels`), `delimiter`, `mode` (`add`, `sync`), `dry_run` (Modellierer) |
+| DELETE | `/api/dimensions/{d}` | Dimension löschen, nur wenn kein Cube sie nutzt (Modellierer) |
 | POST | `/api/cubes/{c}/view` | Pivot berechnen: Achsen mit Aufklappzustand, Filter, Nullunterdrückung, Ausschnitt → Werte + Zellmetadaten (Basis/Aggregat/Regel, beschreibbar, Format) + Generation |
 | POST | `/api/cubes/{c}/write` | Einzelwert oder Liste (Splash-Syntax), mit erwarteter Generation |
 | POST | `/api/cubes/{c}/undo` | eigene letzte Operation zurücknehmen |
@@ -312,6 +318,7 @@ Ziel: Auf jedem Rechner mit Docker (Linux-Server, Mac mit Docker Desktop/OrbStac
 - Eingabe direkt in der Zelle inklusive Splash-Syntax; beschreibbare, gesperrte und Regelzellen farblich unterschieden; Tastaturnavigation wie in Excel; Bereich aus Excel einfügen; Strg+Z = Undo; Konfliktdialog; Live-Aktualisierung bei Änderungen anderer.
 - Ansichten unter Namen speichern, privat oder für alle.
 - Dimensionseditor: Baum mit Lazy Loading und Suche, Hinzufügen, Umbenennen, Verschieben, Gewichte, Attribute.
+- Dimensionsverwaltung (Modellierer): neue Dimension anlegen, Dimension umbenennen oder löschen (beides nur, solange kein Cube sie nutzt; sonst sind die Knöpfe gesperrt), Elemente aus CSV importieren mit Vorschau vor dem Ausführen. Der Elementzähler im Auswahlfeld bleibt nach Änderungen aktuell; benennt oder löscht jemand anderes die geöffnete Dimension, baut sich die Seite neu auf.
 - Regeleditor mit Zeilennummern und Fehlermarkierung.
 - Importseite: Datei hochladen, Spalten zuordnen, Vorschau mit Protokoll, ausführen, Spezifikation speichern.
 - Journal-Ansicht: Wer hat wann was geändert, Sprung zur Zelle.
