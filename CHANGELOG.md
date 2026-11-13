@@ -1,5 +1,11 @@
 # Änderungen
 
+## 1.1.0
+
+- Dimensionsverwaltung in der Web-Oberfläche und in der API: Dimensionen anlegen, umbenennen, per CSV importieren (mit Vorschau, Formate „Eltern-Kind“ und „Ebenen“, Modus „Nur hinzufügen“ oder „Abgleichen“) und löschen. Umbenennen und Löschen sind nur für Dimensionen möglich, die kein Cube nutzt.
+- Neue Routen: `POST /api/v1/dimensions`, `POST /api/v1/dimensions/{d}/rename`, `POST /api/v1/dimensions/{d}/import`, `DELETE /api/v1/dimensions/{d}`.
+- Web-Oberfläche: Der Elementzähler im Dropdown der Dimensionen bleibt nach Änderungen aktuell. Wird eine Dimension von jemand anderem umbenannt oder gelöscht, baut sich die Seite neu auf.
+
 ## 1.0.1
 
 - Web-Oberfläche: Die Spalten im Pivot sind 150 statt 110 px breit. Lange Spaltenköpfe wie „Abweichung in %“ oder „Abschreibungen“ wurden vorher abgeschnitten.
