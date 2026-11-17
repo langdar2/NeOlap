@@ -30,11 +30,15 @@ from .errors import (
 _API = "/api/v1"
 
 
+def _refuse_redirect(code: int) -> ConnectionFailed:
+    return ConnectionFailed(f"the server answered with a redirect ({code}); redirects are not followed, so the token stays with the server it was made for")
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """Turns every redirect into an error instead of following it (the token would go along)."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise ConnectionFailed(f"the server answered with a redirect ({code}); redirects are not followed, so the token stays with the server it was made for")
+        raise _refuse_redirect(code)
 
 
 def _raise_for(status: int, body: dict | None) -> None:
@@ -132,6 +136,10 @@ class RemoteDatabase:
             with self._opener.open(req, timeout=self._timeout) as res:
                 return res.read()
         except urllib.error.HTTPError as e:
+            # not only through the handler: before Python 3.11 urllib does not treat 308 as a redirect
+            # and raises it as an error, and any 3xx that reaches this point is one we do not follow
+            if 300 <= e.code < 400:
+                raise _refuse_redirect(e.code) from None
             try:
                 parsed = json.loads(e.read() or b"null")
             except (ValueError, http.client.HTTPException, OSError):
