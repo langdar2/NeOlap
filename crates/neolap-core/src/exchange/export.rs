@@ -107,7 +107,10 @@ pub fn export_table(
             });
         }
     }
-    let total: u128 = lists.iter().map(|l| l.len() as u128).product();
+    // saturating: a wrapped product would slip past the limit below
+    let total = lists
+        .iter()
+        .fold(1u128, |n, l| n.saturating_mul(l.len() as u128));
     if total > MAX_EXPORT_CELLS {
         return Err(Error::InvalidOperation(format!(
             "the area has {total} cells; the limit of one export is {MAX_EXPORT_CELLS}, please narrow it down"

@@ -30,6 +30,13 @@ from .errors import (
 _API = "/api/v1"
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Turns every redirect into an error instead of following it (the token would go along)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ConnectionFailed(f"the server answered with a redirect ({code}); redirects are not followed, so the token stays with the server it was made for")
+
+
 def _raise_for(status: int, body: dict | None) -> None:
     message = (body or {}).get("error") or f"HTTP {status}"
     code = (body or {}).get("code")
@@ -100,6 +107,12 @@ class RemoteDatabase:
             self._ctx = ssl.create_default_context()
             self._ctx.check_hostname = False
             self._ctx.verify_mode = ssl.CERT_NONE
+        # No redirects: urllib would send the Authorization header on to wherever the answer points,
+        # also to another host or from https to http. A server of ours never redirects.
+        handlers = [_NoRedirect()]
+        if self._ctx is not None:
+            handlers.append(urllib.request.HTTPSHandler(context=self._ctx))
+        self._opener = urllib.request.build_opener(*handlers)
         # dimensions per cube, so a read is one request instead of two; dropped when the server
         # says "not found" (the model may have changed) and read once more
         self._dims: dict[str, list[str]] = {}
@@ -116,7 +129,7 @@ class RemoteDatabase:
         """Sends a request and returns the answer's body. Every way this can fail ends in a
         `neolap` exception: callers catch `NeolapError`, never urllib's or http.client's types."""
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout, context=self._ctx) as res:
+            with self._opener.open(req, timeout=self._timeout) as res:
                 return res.read()
         except urllib.error.HTTPError as e:
             try:

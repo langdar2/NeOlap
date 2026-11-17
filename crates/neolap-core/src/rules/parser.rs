@@ -80,9 +80,15 @@ pub struct RuleAst {
     pub line: usize,
 }
 
+/// Deepest nesting of one expression: brackets, signs, calls, cell references and every operator
+/// of a chain count. It bounds the recursion of the parser and of everything that walks the tree
+/// afterwards; deeper text would end the whole process with a stack overflow.
+const MAX_NESTING: usize = 256;
+
 struct Parser {
     toks: Vec<Token>,
     i: usize,
+    depth: usize,
 }
 
 impl Parser {
@@ -108,6 +114,18 @@ impl Parser {
 
     fn err<T>(&self, msg: &str) -> Result<T> {
         Err(Error::Parse(format!("{}: {msg}", self.pos())))
+    }
+
+    /// One level deeper. Callers reset `depth` when they return; after an error nothing needs
+    /// resetting because the first error ends the parse.
+    fn enter(&mut self) -> Result<()> {
+        self.depth += 1;
+        if self.depth > MAX_NESTING {
+            return self.err(&format!(
+                "the rule is nested too deeply (more than {MAX_NESTING} levels)"
+            ));
+        }
+        Ok(())
     }
 
     fn expect(&mut self, t: Tok, what: &str) -> Result<()> {
@@ -174,6 +192,8 @@ impl Parser {
     }
 
     fn cell_ref(&mut self) -> Result<CellRef> {
+        let outer = self.depth;
+        self.enter()?;
         let pos = self.pos();
         self.expect(Tok::LBracket, "'['")?;
         let mut items = Vec::new();
@@ -205,10 +225,13 @@ impl Parser {
                 t => return self.err(&format!("expected ',' or ']', found {}", describe(t))),
             }
         }
+        self.depth = outer;
         Ok(CellRef { items, pos })
     }
 
     fn expr(&mut self, min_bp: u8) -> Result<Expr> {
+        let outer = self.depth;
+        self.enter()?;
         let mut lhs = match self.peek() {
             Tok::Minus => {
                 self.bump();
@@ -244,10 +267,12 @@ impl Parser {
             if lbp < min_bp {
                 break;
             }
+            self.enter()?; // a chain `1+1+1+…` builds a tree as deep as it is long
             self.bump();
             let rhs = self.expr(rbp)?;
             lhs = Expr::Bin(op, Box::new(lhs), Box::new(rhs));
         }
+        self.depth = outer;
         Ok(lhs)
     }
 
@@ -353,6 +378,7 @@ pub fn parse(src: &str) -> Result<Vec<RuleAst>> {
     let mut p = Parser {
         toks: lex(src)?,
         i: 0,
+        depth: 0,
     };
     let mut rules = Vec::new();
     while *p.peek() != Tok::Eof {

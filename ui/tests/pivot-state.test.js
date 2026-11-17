@@ -157,3 +157,36 @@ test('pasting fills down and right from the top-left cell and skips what cannot 
   const r3 = pasteWrites([['1,5', ' #2.000,5 ']], { top: 2, left: 0 }, d);
   assert.deepEqual(r3.writes.map((w) => w.text), ['1,5', '#2.000,5'], 'passed on for the server to read, blanks removed');
 });
+
+test('the text an editor, a copy or a paste gets from a number is read back as the same number', async () => {
+  const { numberText } = await import('../pivot-state.js');
+  // -50 must not become "subtract 50", 2.125 must not become 2125 (German thousands dot), and
+  // an exponent is not understood by the server
+  const cases = [[-50, '=-50'], [50, '50'], [0, '0'], [2.125, '2,125'], [-2.125, '=-2,125'], [1e-7, '0,0000001'], [1234.5, '1234,5'], [1e21, '1000000000000000000000'], [-0.5, '=-0,5'], [1.5e-20, '0,000000000000000000015'], [1e-21, '0,000000000000000000001'], [-1e-25, '=-0,0000000000000000000000001'], [5e-324, '0,' + '0'.repeat(323) + '5'], [123456789.123456, '123456789,123456'], [100, '100'], [1e22, '10000000000000000000000'], [0.5, '0,5'], [-0, '0']];
+  for (const [n, want] of cases) assert.equal(numberText(n), want, String(n));
+  for (const [n] of cases) assert.equal(looksLikeInput(normalizeInput(numberText(n))), true, `${n} passes the pre-check`);
+  const d = pivot();
+  d.setAnswer({ generation: 1, values: [[null, null], [null, null], [-50, 2.125]], kind: [['agg', 'agg'], ['agg', 'agg'], ['base', 'base']], writable: [[false, false], [false, false], [true, true]] });
+  assert.equal(d.gridData().cell(2, 0).edit, '=-50', 'F2 on -50 then Enter must not subtract');
+  assert.equal(d.gridData().cell(2, 1).edit, '2,125');
+});
+
+test('a view answer that arrives late for an older request is dropped', () => {
+  const p = pivot();
+  const a = p.startRequest(); // filter A
+  p.filters.years = 'Feb';
+  const b = p.startRequest(); // filter B
+  assert.equal(p.acceptAnswer(b, { generation: 9, values: [[1, 1], [1, 1], [1, 1]], kind: p.answer.kind, writable: p.answer.writable }), true);
+  assert.equal(p.acceptAnswer(a, { generation: 3, values: [[7, 7], [7, 7], [7, 7]], kind: p.answer.kind, writable: p.answer.writable }), false, 'A answered after B');
+  assert.equal(p.answer.generation, 9);
+  assert.equal(p.answer.values[0][0], 1);
+});
+
+test('the addresses of a write are fixed when the input starts, a later filter change cannot move them', () => {
+  const p = pivot();
+  const plan = p.planWrites([{ row: 2, col: 0, text: '1' }, { row: 2, col: 1, text: '2' }]);
+  p.filters.years = 'Feb';
+  assert.deepEqual(plan.map((w) => w.cell), [['Jan', 'Sued', 'Sales'], ['Jan', 'Sued', 'Cost']]);
+  assert.equal(plan[0].cube, 'sales');
+  assert.deepEqual(p.cellAddress(2, 0), ['Feb', 'Sued', 'Sales'], 'the live address does follow the filter');
+});

@@ -324,3 +324,44 @@ def test_star_import_does_not_hide_the_builtin_permission_error():
     assert "PermissionError" not in ns or ns["PermissionError"] is PermissionError
     assert ns["NotFoundError"] is neolap.NotFoundError and ns["open"] is neolap.open
     assert neolap.PermissionError is not PermissionError
+
+
+def test_a_redirect_never_carries_the_token_to_another_server():
+    # the server named in `connect` answers 302 to a second origin; that one must see no token
+    seen = []
+
+    def spy():
+        import socket
+
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(5)
+
+        def run():
+            while True:
+                try:
+                    c, _ = srv.accept()
+                except OSError:
+                    return
+                c.settimeout(1)
+                try:
+                    seen.append(c.recv(65536))
+                    c.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}")
+                except OSError:
+                    pass
+                c.close()
+
+        threading.Thread(target=run, daemon=True).start()
+        return srv, srv.getsockname()[1]
+
+    other, other_port = spy()
+    for status in (301, 302, 303, 307, 308):
+        seen.clear()
+        raw = f"HTTP/1.1 {status} Moved\r\nLocation: http://127.0.0.1:{other_port}/api/v1/model\r\nContent-Length: 0\r\n\r\n".encode()
+        srv, port = _fake_server([raw])
+        db = neolap.connect(f"http://127.0.0.1:{port}", token="nlp_secret_value", timeout=2)
+        with pytest.raises(neolap.ConnectionFailed, match="redirect"):
+            db.cubes
+        srv.close()
+        assert seen == [], f"{status}: the second server was contacted: {seen}"
+    other.close()

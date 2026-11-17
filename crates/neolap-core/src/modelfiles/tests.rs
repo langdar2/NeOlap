@@ -394,3 +394,33 @@ fn an_alias_may_take_the_name_of_a_member_removed_by_the_same_import() {
     let d = db.dimension("d").unwrap();
     assert_eq!(d.resolve("old"), d.resolve("keep"));
 }
+
+#[test]
+fn a_rule_syntax_error_stops_the_import_before_any_member_or_cell_is_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = build(dir.path());
+    let ctx = WriteContext::new("anna");
+    let cube = db.cube_mut("sales").unwrap();
+    let a = cube.address(&["Apr", "Sales"]).unwrap();
+    cube.write(&ctx, &a, Input::parse("30").unwrap()).unwrap();
+    let m = dir.path().join("m");
+    export_model(&db, &m).unwrap();
+    let before = db.journal(&Default::default()).unwrap().len();
+    // the dimension file drops Apr (which holds a cell), the rule file has a syntax error
+    let p = m.join("dimensions/years.csv");
+    let text = std::fs::read_to_string(&p).unwrap();
+    std::fs::write(&p, text.replace("Apr;Q2;;;;\n", "Jun;Q2;;;;\n")).unwrap();
+    let r = m.join("rules/sales.rules");
+    let rules = std::fs::read_to_string(&r).unwrap();
+    std::fs::write(&r, rules.replace("IF(", "IF(;")).unwrap();
+    let err = import_model(&mut db, &m, "x").unwrap_err();
+    assert!(err.to_string().contains("sales.rules"), "{err}");
+    assert_eq!(db.stored_cells("sales").unwrap(), 1);
+    let cube = db.cube("sales").unwrap();
+    assert_eq!(
+        cube.value(&cube.address(&["Apr", "Sales"]).unwrap())
+            .unwrap(),
+        Some(30.0)
+    );
+    assert_eq!(db.journal(&Default::default()).unwrap().len(), before);
+}

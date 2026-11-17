@@ -402,7 +402,12 @@ pub fn import_model(db: &mut Database, dir: &Path, user: &str) -> Result<ModelIm
                 p.display()
             )));
         }
-        rules.push((name, fs::read_to_string(&p)?));
+        let text = fs::read_to_string(&p)?;
+        // Syntax only (references are resolved against the final model by `set_rules`): a syntax
+        // error found after the dimensions were saved would leave their removed cells lost.
+        crate::rules::RuleSet::build(&text, &[])
+            .map_err(|e| Error::Parse(format!("{}: {e}", p.display())))?;
+        rules.push((name, text));
     }
     let mut specs: Vec<String> = Vec::new();
     for p in read_dir_sorted(&dir.join("imports"), "toml")? {

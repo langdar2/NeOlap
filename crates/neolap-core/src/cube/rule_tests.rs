@@ -282,3 +282,75 @@ fn rule_text_is_stored_and_replaced() {
     c.set_rules("").unwrap();
     assert_eq!(cell(&c, &["Nord", "Margin"]), CellValue::Empty);
 }
+
+#[test]
+fn deeply_nested_rules_are_refused_instead_of_overflowing_the_stack() {
+    let mut c = model();
+    let parens = format!(
+        "['Margin'] = {}1{};",
+        "(".repeat(10_000),
+        ")".repeat(10_000)
+    );
+    let chain = format!("['Margin'] = {}1;", "1+".repeat(10_000));
+    let cells = format!(
+        "['Margin'] = {}1{};",
+        "['Sales', ".repeat(10_000),
+        "]".repeat(10_000)
+    );
+    for text in [parens, chain, cells] {
+        let e = c.set_rules(&text).unwrap_err();
+        assert!(
+            matches!(&e, Error::Parse(m) if m.contains("too deeply")),
+            "{e}"
+        );
+    }
+    // ordinary depth still works
+    c.set_rules(&format!(
+        "['Margin'] = {}1{};",
+        "(".repeat(40),
+        ")".repeat(40)
+    ))
+    .unwrap();
+    c.set_rules(&format!("['Margin'] = {}1;", "1+".repeat(100)))
+        .unwrap();
+    // the deepest accepted rules must also be evaluated on a small stack (test threads have 2 MB)
+    c.set_rules(&format!(
+        "['Margin'] = {}1{};",
+        "(-".repeat(120),
+        ")".repeat(120)
+    ))
+    .unwrap();
+    c.set_rules(&format!("['Margin'] = {}1;", "1+".repeat(250)))
+        .unwrap();
+    assert_eq!(num(&c, &["Nord", "Margin"]), Some(251.0));
+}
+
+#[test]
+fn a_feeder_reaches_every_target_of_a_desc_rule_not_only_a_single_one() {
+    let mut m = Dimension::new("measures", DimensionKind::Measures).edit();
+    let derived = m.add("Derived").unwrap();
+    m.add_children(derived, &["X", "Y"]).unwrap();
+    m.add("Quantity").unwrap();
+    let mut r = Dimension::new("regions", DimensionKind::Generic).edit();
+    let total = r.add("Total").unwrap();
+    r.add_children(total, &["A", "B"]).unwrap();
+    let mut c = Cube::new(
+        "q",
+        vec![Arc::new(r.commit().unwrap()), Arc::new(m.commit().unwrap())],
+    );
+    let a = c.address(&["A", "Quantity"]).unwrap();
+    c.set_base(&a, Some(10.0)).unwrap();
+    c.set_rules("N: [measures:DESC('Derived')] = ['Quantity'] * 2 FEED ['Quantity'];")
+        .unwrap();
+    assert_eq!(num(&c, &["A", "X"]), Some(20.0));
+    assert_eq!(num(&c, &["A", "Y"]), Some(20.0));
+    // the sums over the targets are fed as well, they were empty before
+    assert_eq!(num(&c, &["A", "Derived"]), Some(40.0));
+    assert_eq!(num(&c, &["Total", "X"]), Some(20.0));
+    assert_eq!(num(&c, &["Total", "Derived"]), Some(40.0));
+    // nothing is fed where the feeder cell holds nothing
+    let a = c.address(&["A", "Quantity"]).unwrap();
+    c.set_base(&a, None).unwrap();
+    assert_eq!(cell(&c, &["Total", "X"]), CellValue::Empty);
+    assert_eq!(cell(&c, &["Total", "Derived"]), CellValue::Empty);
+}

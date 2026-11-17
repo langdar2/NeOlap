@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
+use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -49,17 +50,23 @@ pub struct ImportReport {
 /// The cells an import would write, ready to be applied later with [`apply_prepared`]. They hold
 /// only member ids, so the expensive part (reading and resolving the file) can run while others
 /// still read the cube, and only the short write needs the exclusive lock.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PreparedImport {
     write: BulkWrite,
-    /// Member slots per dimension at preparation time: a changed model makes the resolved member
-    /// ids void. (Changed *cells* are caught by `bulk_write` through the caller's expected generation.)
-    shape: Vec<usize>,
+    /// The dimension snapshots the member ids were resolved against: any model change makes them
+    /// void, also one that keeps the slot count (delete a member, add another into its slot).
+    /// (Changed *cells* are caught by `bulk_write` through the caller's expected generation.)
+    dims: Vec<Arc<Dimension>>,
     pub report: ImportReport,
 }
 
-fn shape_of(cube: &Cube) -> Vec<usize> {
-    cube.dimensions().iter().map(|d| d.len_slots()).collect()
+fn same_model(cube: &Cube, dims: &[Arc<Dimension>]) -> bool {
+    cube.dimensions().len() == dims.len()
+        && cube
+            .dimensions()
+            .iter()
+            .zip(dims)
+            .all(|(a, b)| Arc::ptr_eq(a, b))
 }
 
 /// Most rejected rows kept verbatim in the report.
@@ -281,7 +288,7 @@ pub fn prepare_import(
     };
     Ok(PreparedImport {
         write,
-        shape: shape_of(cube),
+        dims: cube.dimensions().to_vec(),
         report,
     })
 }
@@ -297,7 +304,7 @@ pub fn apply_prepared(
     if report.failed.is_some() {
         return Ok(report);
     }
-    if shape_of(cube) != prepared.shape {
+    if !same_model(cube, &prepared.dims) {
         return Err(Error::Conflict(
             "the model changed while the import was prepared; please run it again".into(),
         ));

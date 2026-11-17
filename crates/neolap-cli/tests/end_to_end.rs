@@ -640,3 +640,36 @@ fn an_open_live_stream_does_not_keep_the_server_from_stopping() {
     assert!(exit.success(), "a clean exit, not a crash: {exit:?}");
     drop(stream);
 }
+
+#[test]
+fn export_never_overwrites_an_existing_file_and_never_the_database_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = p(dir.path(), "plan.neolap");
+    ok(&["demo", "tiny", &db]);
+    let before = std::fs::read(&db).unwrap();
+    let area = "years=Jan,regions=North,products=sedan,measures=Sales";
+    // the target is the database that is being read
+    let err = fails(&["export", &db, "sales", "--area", area, "-o", &db]);
+    assert!(err.contains("already exists"), "{err}");
+    assert_eq!(
+        std::fs::read(&db).unwrap(),
+        before,
+        "the database is intact"
+    );
+    ok(&["info", &db]);
+    // an alias of the database is refused as well
+    #[cfg(unix)]
+    {
+        let alias = p(dir.path(), "alias.csv");
+        std::os::unix::fs::symlink(&db, &alias).unwrap();
+        fails(&["export", &db, "sales", "--area", area, "-o", &alias]);
+        assert_eq!(std::fs::read(&db).unwrap(), before);
+    }
+    // an ordinary new file works, a second export to it is refused
+    let out = p(dir.path(), "out.csv");
+    ok(&["export", &db, "sales", "--area", area, "-o", &out]);
+    let first = std::fs::read(&out).unwrap();
+    assert!(!first.is_empty());
+    assert!(fails(&["export", &db, "sales", "-o", &out]).contains("already exists"));
+    assert_eq!(std::fs::read(&out).unwrap(), first);
+}

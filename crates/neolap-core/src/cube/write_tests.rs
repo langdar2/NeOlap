@@ -454,3 +454,47 @@ fn splash_100k() {
     println!("undo: {:?}", t.elapsed());
     assert_eq!(cube.value(&all).unwrap(), Some(1_000_000.0));
 }
+
+#[test]
+fn an_area_too_large_to_count_is_refused_instead_of_wrapping_to_zero() {
+    // 16 dimensions with 256 base members each: 256^16 = 2^128 overflows a u128 to exactly 0
+    let dims: Vec<Arc<Dimension>> = (0..16)
+        .map(|i| {
+            let mut e = Dimension::new(format!("d{i}"), DimensionKind::Generic).edit();
+            let all = e.add("All").unwrap();
+            let names: Vec<String> = (0..256).map(|n| format!("m{n}")).collect();
+            let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+            e.add_children(all, &refs).unwrap();
+            Arc::new(e.commit().unwrap())
+        })
+        .collect();
+    let mut c = Cube::new("big", dims);
+    let addr = c.address(&["All"; 16]).unwrap();
+    assert!(c.area_info(&addr).unwrap().base_cells > 1_000_000);
+    assert!(c.area_base_coords(&addr, 10_000).is_none());
+    let before = c.generation();
+    assert!(matches!(
+        c.write(&ctx(), &addr, Input::Equal(1.0)),
+        Err(Error::InvalidOperation(_))
+    ));
+    assert_eq!(c.generation(), before);
+}
+
+/// What the UI writes for a number (`numberText` in ui/pivot-state.js) must be read by the server
+/// as the same number: this is the other half of `input_contract_with_the_web_ui_holds`.
+#[test]
+fn the_texts_the_ui_makes_of_numbers_are_read_back_as_the_same_numbers() {
+    for (text, want) in [
+        ("=-50", -50.0),
+        ("50", 50.0),
+        ("0", 0.0),
+        ("2,125", 2.125),
+        ("=-2,125", -2.125),
+        ("0,0000001", 1e-7),
+        ("1234,5", 1234.5),
+        ("=-0,5", -0.5),
+        ("1000000000000000000000", 1e21),
+    ] {
+        assert_eq!(Input::parse(text).unwrap(), Input::Set(want), "{text}");
+    }
+}
