@@ -1028,3 +1028,43 @@ fn a_token_for_another_id_or_with_a_changed_secret_is_refused() {
         assert!(db.authenticate_token(bad).is_err(), "{bad:?}");
     }
 }
+
+#[test]
+fn a_removed_user_takes_the_grants_along_so_a_new_user_of_that_name_starts_with_none() {
+    let (_d, path) = tmp();
+    let mut db = sample(&path);
+    db.add_user("root", "a very long secret", Role::Admin, "system")
+        .unwrap();
+    db.add_user("pia", "a very long secret", Role::Planner, "root")
+        .unwrap();
+    db.grant(&grant("pia", Access::Write, &[]), "root").unwrap();
+    db.grant(&grant("PIA", Access::Read, &[("years", &["Q1"])]), "root")
+        .unwrap();
+    db.remove_user("pia", "root").unwrap();
+    assert!(db.grants(Some("pia")).unwrap().is_empty());
+    db.add_user("pia", "another very long secret", Role::Planner, "root")
+        .unwrap();
+    let r = db.rights("pia", Role::Planner, "sales").unwrap();
+    assert!(!r.can_read_cube(), "a new user must not inherit old rights");
+    drop(db);
+    // survives a reopen; other users' grants stay
+    let mut db = Database::open(&path).unwrap();
+    db.add_user("ben", "a very long secret", Role::Planner, "root")
+        .unwrap();
+    db.grant(&grant("ben", Access::Read, &[]), "root").unwrap();
+    db.remove_user("pia", "root").unwrap();
+    assert_eq!(db.grants(None).unwrap().len(), 1);
+}
+
+// 12: ein Alias auf dieselbe Datei umgeht die Sperre nicht
+#[cfg(unix)]
+#[test]
+fn a_symlink_to_an_open_database_does_not_get_around_the_lock() {
+    let (d, path) = tmp();
+    let db = sample(&path);
+    let alias = d.path().join("alias.neolap");
+    std::os::unix::fs::symlink(&path, &alias).unwrap();
+    assert!(matches!(Database::open(&alias), Err(Error::Locked(_))));
+    drop(db);
+    assert!(Database::open(&alias).is_ok());
+}

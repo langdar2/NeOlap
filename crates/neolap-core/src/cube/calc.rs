@@ -356,14 +356,19 @@ impl Cube {
                 None => return Vec::new(), // computed members cannot be inverted
             }
         }
-        // Dimension d of the feeder cell replaces the target coordinate if the rule fixes it.
-        let replace: Vec<Option<u32>> = (0..n)
+        // Dimension d of the feeder cell is replaced by the target members the rule fixes there:
+        // one member (`'X'`) or all below one (`DESC('Derived')`).
+        let replace: Vec<Option<Vec<u32>>> = (0..n)
             .map(
                 |d| match (&rule.base_ords[d], fed_dims.iter().any(|f| f.0 == d)) {
-                    (Some(s), true) if s.len() == 1 => s.iter().next().copied(),
+                    (Some(s), true) => Some(s.iter().copied().collect()),
                     _ => None,
                 },
             )
+            .collect();
+        // the replaced dimensions with several targets: every combination of them is a fed cell
+        let multi: Vec<usize> = (0..n)
+            .filter(|&d| replace[d].as_ref().is_some_and(|t| t.len() != 1))
             .collect();
         let store = &self.store;
         (0..store.n_rows())
@@ -372,15 +377,37 @@ impl Cube {
             .into_par_iter()
             .flat_map_iter(|start| {
                 let mut out = Vec::new();
-                for row in start..(start + SCAN_CHUNK).min(store.n_rows()) {
+                'rows: for row in start..(start + SCAN_CHUNK).min(store.n_rows()) {
                     if !store.is_live(row)
                         || !fed_dims.iter().all(|(d, s)| s.contains(store.col(*d)[row]))
                     {
                         continue;
                     }
-                    let at = |d: usize| replace[d].unwrap_or(store.col(d)[row]);
-                    if (0..n).all(|d| sets[d].contains(at(d))) && rule.base_match(at) {
-                        out.push((0..n).map(at).collect::<Vec<u32>>());
+                    let mut idx = vec![0usize; multi.len()];
+                    loop {
+                        let at = |d: usize| match (&replace[d], multi.iter().position(|&m| m == d))
+                        {
+                            (Some(t), Some(k)) => t[idx[k]],
+                            (Some(t), None) => t[0],
+                            (None, _) => store.col(d)[row],
+                        };
+                        if (0..n).all(|d| sets[d].contains(at(d))) && rule.base_match(at) {
+                            out.push((0..n).map(at).collect::<Vec<u32>>());
+                        }
+                        // next combination of the multi-target dimensions (none: just this one)
+                        let mut k = multi.len();
+                        loop {
+                            if k == 0 {
+                                continue 'rows;
+                            }
+                            k -= 1;
+                            idx[k] += 1;
+                            let len = replace[multi[k]].as_ref().map_or(0, Vec::len);
+                            if idx[k] < len {
+                                break;
+                            }
+                            idx[k] = 0;
+                        }
                     }
                 }
                 out

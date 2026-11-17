@@ -123,8 +123,26 @@ pub(crate) fn now() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
+/// The lock file of a database. Symlinks are resolved first, so every name of the file leads to the
+/// same lock; otherwise a link would open the database a second time.
+// shortcut: a hard link is another name of the same file and keeps its own lock; upgrade to a lock
+// on the database file itself if hard links to a live database ever occur.
 fn lock_path(path: &Path) -> PathBuf {
-    let mut p = path.as_os_str().to_owned();
+    let real = path
+        .canonicalize()
+        .or_else(|_| {
+            // a database that is about to be created does not exist yet: resolve its directory
+            let dir = path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            let name = path
+                .file_name()
+                .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+            dir.canonicalize().map(|d| d.join(name))
+        })
+        .unwrap_or_else(|_| path.to_path_buf());
+    let mut p = real.into_os_string();
     p.push(".lock");
     PathBuf::from(p)
 }
@@ -708,12 +726,31 @@ impl Database {
         let conn = self.conn.clone();
         let user = ctx.user.clone();
         let mut changed: Vec<Arc<Dimension>> = Vec::new();
+        let others = &self.cubes;
         let result = {
             let mut create = |c: &mut Cube,
                               d: usize,
                               members: Vec<(String, String)>|
              -> Result<()> {
                 let dim = c.dimensions()[d].clone();
+                // The importing cube checked its own cells. A parent holding cells in another cube
+                // that shares the dimension would become an aggregate there and lose them, in
+                // memory but not in the file (which then no longer opens).
+                for (_, parent) in &members {
+                    let Some(ord) = dim.resolve(parent).and_then(|p| dim.leaf_ordinal(p)) else {
+                        continue;
+                    };
+                    for other in others.values() {
+                        for (i, od) in other.dimensions().iter().enumerate() {
+                            if od.name() == dim.name() && other.store().count_of_leaf(i, ord) > 0 {
+                                return Err(Error::Conflict(format!(
+                                    "'{parent}' holds data in cube '{}' and cannot become the parent of new members; name an aggregate or an empty member",
+                                    other.name()
+                                )));
+                            }
+                        }
+                    }
+                }
                 let mut ed = dim.edit();
                 for (name, parent) in &members {
                     let p = ed.get_or_add(parent)?;

@@ -897,3 +897,54 @@ fn import_phases() {
     .unwrap();
     println!("whole import (dry run work + write): {:?}", t.elapsed());
 }
+
+#[test]
+fn create_under_refuses_a_parent_that_holds_data_in_another_cube_of_the_same_dimension() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = db_with_cube(dir.path());
+    db.create_cube("plan", &["regions"], "admin").unwrap();
+    let plan = db.cube_mut("plan").unwrap();
+    let sued = plan.address(&["Sued"]).unwrap();
+    plan.write(&ctx(), &sued, Input::Set(42.0)).unwrap();
+    // "Sued" is empty in `sales`, so the check of the importing cube alone lets this through
+    let s = spec(&WIDE.replace("reject", "create_under:Sued"));
+    let data = "Monat;Region;Umsatz;Kosten\nJan;Neu;1;\n";
+    let err = db
+        .run_import(&s, SourceKind::Csv, data.as_bytes(), &ctx(), false)
+        .unwrap_err();
+    assert!(err.to_string().contains("plan"), "{err}");
+    assert!(db.dimension("regions").unwrap().resolve("Neu").is_none());
+    assert_eq!(db.cube("plan").unwrap().n_cells(), 1);
+    drop(db);
+    // the file is still consistent and the cell of the other cube is still there
+    let db = Database::open(dir.path().join("p.neolap")).unwrap();
+    let plan = db.cube("plan").unwrap();
+    assert_eq!(
+        plan.value(&plan.address(&["Sued"]).unwrap()).unwrap(),
+        Some(42.0)
+    );
+}
+
+// 5: wiederverwendeter Platz einer Dimension
+#[test]
+fn a_reused_member_slot_between_prepare_and_apply_is_detected() {
+    let mut c = cube();
+    let prepared =
+        prepare_import(&c, &spec(WIDE), SourceKind::Csv, FILE.as_bytes(), &ctx()).unwrap();
+    // delete a member, then add another one: the freed slot is reused, the slot count stays equal
+    for step in 0..2 {
+        let mut ed = c.dimensions()[1].edit();
+        if step == 0 {
+            let sued = ed.resolve("Sued").unwrap();
+            ed.remove(sued).unwrap();
+        } else {
+            let total = ed.resolve("Total").unwrap();
+            ed.add_children(total, &["Neu"]).unwrap();
+        }
+        c.replace_dimension(1, Arc::new(ed.commit().unwrap()))
+            .unwrap();
+    }
+    let err = apply_prepared(&mut c, prepared, &ctx()).unwrap_err();
+    assert!(matches!(err, Error::Conflict(m) if m.contains("run it again")));
+    assert_eq!(c.n_cells(), 0);
+}

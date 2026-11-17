@@ -10,6 +10,7 @@
 
 import { GridSelection, offsetsFor, visibleRange, scrollToReveal, NAV_KEYS } from './grid-model.js';
 import { h, formatNumber } from './dom.js';
+import { numberText } from './pivot-state.js';
 
 const ROW_HEIGHT = 26;
 const COL_WIDTH = 150; // keep in sync with --col-w in style.css; fits "Abweichung in %" with its toggle
@@ -379,7 +380,7 @@ export class Grid {
     }
     const el = this.cells.get(`${row}:${col}`);
     if (!el) return;
-    const text = initial !== undefined ? initial : cell.edit ?? (typeof cell.value === 'number' ? String(cell.value) : '');
+    const text = initial !== undefined ? initial : cell.edit ?? (typeof cell.value === 'number' ? numberText(cell.value) : '');
     const input = h('input', { class: 'g-editor', type: 'text', value: text, spellcheck: false, autocomplete: 'off', 'aria-label': 'Wert eingeben' });
     el.classList.add('g-editing');
     el.replaceChildren(input);
@@ -426,7 +427,9 @@ export class Grid {
     for (let row = r.top; row <= r.bottom; row++) {
       const cols = [];
       for (let col = r.left; col <= r.right; col++) {
-        const v = this.data.cell(row, col).value;
+        const c = this.data.cell(row, col);
+        // `copy` is the text a paste reads back as the same value (negative numbers, decimal comma)
+        const v = c.copy ?? c.value;
         cols.push(v === null || v === undefined ? '' : String(v));
       }
       lines.push(cols.join('\t'));

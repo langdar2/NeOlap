@@ -7,6 +7,31 @@
 // { id, name, aliases, level, leaf, children }
 
 /**
+ * A number as text that the server reads back as the same number. `String(n)` does not: `-50` is
+ * a difference ("subtract 50"), `2.125` is 2125 with a German thousands dot, and `1e-7` has an
+ * exponent the server does not know. So: a decimal comma, no exponent, and `=` before a negative
+ * number (an absolute value, not a difference).
+ */
+export function numberText(n) {
+  // `String` gives the shortest text that reads back as the same number, with an exponent for
+  // very large and small values; the exponent is written out here, digit by digit, so nothing
+  // is rounded (`toLocaleString` would turn 1e-21 into 0)
+  const [mant, exp = '0'] = String(Math.abs(n)).split('e');
+  const [whole, frac = ''] = mant.split('.');
+  const shift = Number(exp);
+  const digits = whole + frac;
+  const point = whole.length + shift;
+  let t;
+  if (point <= 0) t = `0,${'0'.repeat(-point)}${digits}`;
+  else if (point >= digits.length) t = digits + '0'.repeat(point - digits.length);
+  else t = `${digits.slice(0, point)},${digits.slice(point)}`;
+  t = t.replace(/^0+(?=\d)/, '').replace(/,?0+$/, (m) => (m.startsWith(',') ? '' : m));
+  if (t.includes(',')) t = t.replace(/0+$/, '').replace(/,$/, '');
+  if (t === '' || /^0*,?0*$/.test(t)) t = '0';
+  return n < 0 && t !== '0' ? `=-${t}` : t;
+}
+
+/**
  * An axis: the list of rows (or columns) shown. Starts with the roots of one dimension; a member
  * with children can be expanded (its children are inserted below it) and collapsed again.
  */
@@ -116,6 +141,30 @@ export class PivotState {
     /** pending edits by "row:col" → { text, error } while the server has not answered */
     this.pending = new Map();
     this.conflicts = new Map();
+    this.requestId = 0;
+  }
+
+  /**
+   * Numbers a view request. Answers can arrive in another order than the requests were sent; only
+   * the answer of the newest request may be shown (see [`acceptAnswer`](#acceptAnswer)).
+   */
+  startRequest() {
+    return ++this.requestId;
+  }
+
+  /** Takes the answer of request `id` if it is still the newest one; drops it otherwise. */
+  acceptAnswer(id, answer) {
+    if (id !== this.requestId) return false;
+    this.setAnswer(answer);
+    return true;
+  }
+
+  /**
+   * Fixes cube and member names of writes at the moment the input starts. A write that is sent
+   * later (one request after the other) must not follow a filter the user changes meanwhile.
+   */
+  planWrites(writes) {
+    return writes.map((w) => ({ ...w, cube: this.cube.name, cell: this.cellAddress(w.row, w.col) }));
   }
 
   get dimensions() {
@@ -195,7 +244,8 @@ export class PivotState {
           writable: a.writable[r][c],
           pending: !!pend && !pend.error,
           conflict: st.conflicts.has(key),
-          edit: typeof raw === 'number' ? String(raw) : '',
+          edit: typeof raw === 'number' ? numberText(raw) : '',
+          copy: raw === null || raw === undefined ? '' : typeof raw === 'number' ? numberText(raw) : String(raw),
         };
       },
     };

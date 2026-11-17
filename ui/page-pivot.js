@@ -135,15 +135,20 @@ export class PivotPage {
   async load() {
     if (!this.pivot?.rows) return;
     this.busy = true;
+    const pivot = this.pivot;
+    const id = pivot.startRequest();
     try {
-      const answer = await api.post(`/cubes/${api.enc(this.pivot.cube.name)}/view`, this.pivot.request());
-      this.generation = this.pivot.setAnswer(answer);
+      const answer = await api.post(`/cubes/${api.enc(pivot.cube.name)}/view`, pivot.request());
+      // a newer request (another filter, another cube) is on its way or already answered: this
+      // answer belongs to a view that is no longer shown
+      if (pivot !== this.pivot || !pivot.acceptAnswer(id, answer)) return;
+      this.generation = answer.generation;
       this.#message(null);
       this.#show();
     } catch (e) {
-      this.#error(e);
+      if (pivot === this.pivot && id === pivot.requestId) this.#error(e);
     } finally {
-      this.busy = false;
+      if (pivot === this.pivot && id === pivot.requestId) this.busy = false;
     }
   }
 
@@ -370,8 +375,11 @@ export class PivotPage {
   }
 
   /** Sends writes one by one in order; stops at the first problem. */
-  async #write(writes) {
+  async #write(input) {
     const p = this.pivot;
+    // cube and addresses are fixed now: the writes go out one after the other, and the user may
+    // change a filter or the cube while they do
+    const writes = p.planWrites(input);
     let changed = 0;
     for (const w of writes) {
       p.pending.set(`${w.row}:${w.col}`, { text: w.text === '' ? '' : w.text });
@@ -380,7 +388,7 @@ export class PivotPage {
     for (const w of writes) {
       const key = `${w.row}:${w.col}`;
       try {
-        const r = await api.post(`/cubes/${api.enc(p.cube.name)}/write`, { cell: p.cellAddress(w.row, w.col), value: w.text, generation: this.generation });
+        const r = await api.post(`/cubes/${api.enc(w.cube)}/write`, { cell: w.cell, value: w.text, generation: this.generation });
         this.generation = r.generation;
         changed += r.cells_changed;
         p.pending.delete(key);
@@ -413,7 +421,7 @@ export class PivotPage {
         try {
           // the view is refreshed first, so the write is checked against what the user decided on
           await this.load();
-          const r = await api.post(`/cubes/${api.enc(p.cube.name)}/write`, { cell: p.cellAddress(w.row, w.col), value: w.text, generation: this.generation });
+          const r = await api.post(`/cubes/${api.enc(w.cube)}/write`, { cell: w.cell, value: w.text, generation: this.generation });
           this.generation = r.generation;
           return r.cells_changed;
         } catch (e2) {
@@ -424,6 +432,11 @@ export class PivotPage {
     }
     this.ctx.toast(e.message, 'error');
     return 0;
+  }
+
+  /** Entry for pasted cells (the grid's `onPaste`); public so that the page can be driven in tests. */
+  paste(rows, rect) {
+    return this.#paste(rows, rect);
   }
 
   async #paste(rows, rect) {

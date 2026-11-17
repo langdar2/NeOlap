@@ -60,6 +60,19 @@ jobs:
           test "$(docker inspect --format '{{.State.ExitCode}}' neolap-neolap-1)" = 0
       - name: Image size
         run: docker image ls neolap:local
+      # Only for pull requests: the image of the change can be loaded and tried by hand
+      # (`gh run download`, `docker load`). Nothing is pushed to a registry; tags publish below.
+      - name: Save the image
+        if: github.event_name == 'pull_request'
+        run: docker save neolap:local | gzip > neolap-image.tar.gz
+      - name: Keep the image as an artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neolap-image-${{ github.sha }}
+          path: neolap-image.tar.gz
+          retention-days: 1
+          compression-level: 0
       - if: always()
         run: docker compose down -v
 

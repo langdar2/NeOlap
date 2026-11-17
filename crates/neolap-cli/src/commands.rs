@@ -1,6 +1,6 @@
 //! Command definitions and their implementation.
 
-use std::io::{IsTerminal, Read};
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
@@ -86,7 +86,7 @@ pub enum Command {
         /// Area, e.g. `years=2026,version=Actual` (members separated by `|` within a dimension).
         #[arg(long)]
         area: Option<String>,
-        /// Target file (.csv or .xlsx); without it, CSV goes to the standard output.
+        /// Target file (.csv or .xlsx), which must not exist yet; without it, CSV goes to the standard output.
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Wide format: the members of this dimension become columns.
@@ -498,7 +498,19 @@ pub fn run(cli: Cli, out: &mut Output) -> Res<()> {
             .map_err(e)?;
             match output {
                 Some(p) => {
-                    std::fs::write(&p, bytes)
+                    // never overwrite: `-o` naming the database itself would replace it by the CSV
+                    let mut file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&p)
+                        .map_err(|er| match er.kind() {
+                            std::io::ErrorKind::AlreadyExists => format!(
+                                "'{}' already exists; an export never overwrites a file (delete it or choose another name)",
+                                p.display()
+                            ),
+                            _ => format!("cannot write '{}': {er}", p.display()),
+                        })?;
+                    file.write_all(&bytes)
                         .map_err(|er| format!("cannot write '{}': {er}", p.display()))?;
                     out.note(format!("{} rows → {}", table.rows.len(), p.display()));
                 }

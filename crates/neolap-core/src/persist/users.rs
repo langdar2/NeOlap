@@ -246,6 +246,11 @@ impl Database {
                 "DELETE FROM tokens WHERE user = ?1 COLLATE NOCASE",
                 params![name],
             )?;
+            // a later user of the same name must not inherit these rights
+            tx.execute(
+                "DELETE FROM grants WHERE user = ?1 COLLATE NOCASE",
+                params![name],
+            )?;
             let n = tx.execute(
                 "DELETE FROM users WHERE name = ?1 COLLATE NOCASE",
                 params![name],

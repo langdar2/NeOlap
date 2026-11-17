@@ -208,8 +208,11 @@ fn round_to(v: f64, decimals: Option<u32>) -> f64 {
     }
 }
 
+/// Number of base combinations. Saturates instead of wrapping: 16 dimensions of 256 members are
+/// 2^128 cells, which a plain product turns into 0 and so slips past every size limit.
 fn area_len(sets: &[Arc<LeafSet>]) -> u128 {
-    sets.iter().map(|s| s.len() as u128).product()
+    sets.iter()
+        .fold(1u128, |n, s| n.saturating_mul(s.len() as u128))
 }
 
 /// All base combinations of the area (ordinals per dimension).
